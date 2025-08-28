@@ -68,30 +68,30 @@ def get_kanji_reading_pairs(text, kanji_readings):
 
 
 def split_reading(kanji_chars, reading, kanji_readings):
-    """Split compound reading into individual kanji readings using Kanjidic."""
     remaining_reading = reading
     pairs = []
 
     for kanji in kanji_chars:
         found_match = False
-
-        # Try all possible readings for this kanji, starting with longest
         possible_readings = kanji_readings.get(kanji, [])
-        # Sort by length (longest first) to prefer longer matches
         possible_readings = sorted(possible_readings, key=len, reverse=True)
 
         for reading_option in possible_readings:
+            # Try exact and fuzzy match
             if remaining_reading.startswith(reading_option):
                 pairs.append((kanji, reading_option))
                 remaining_reading = remaining_reading[len(reading_option):]
                 found_match = True
                 break
+            elif fuzzy_reading_match(reading_option, remaining_reading[:len(reading_option)]):
+                pairs.append((kanji, remaining_reading[:len(reading_option)]))
+                remaining_reading = remaining_reading[len(reading_option):]
+                found_match = True
+                break
 
         if not found_match:
-            # If no match found for this kanji, the split fails
             return None
 
-    # Only return pairs if the entire reading is consumed
     if not remaining_reading:
         return pairs
     else:
@@ -108,6 +108,24 @@ def katakana_to_hiragana(text):
             result += char
     return result
 
+# python
+def fuzzy_reading_match(kanjidic_reading, actual_reading):
+    # Exact match
+    if kanjidic_reading == actual_reading:
+        return True
+    # Sokuon substitution: がく → がっ
+    if len(kanjidic_reading) == len(actual_reading):
+        # Check if last kana is replaced by sokuon
+        if kanjidic_reading[:-1] == actual_reading[:-1] and actual_reading[-1] == 'っ':
+            # Only allow if kanjidic_reading ends with a kana that can become sokuon
+            if kanjidic_reading[-1] in ['く', 'つ', 'ち', 'き', 'さ', 'し', 'そ', 'こ', 'て', 'と', 'け', 'ぴ', 'ぱ', 'ぺ', 'ぽ']:
+                return True
+    # Sokuon: がく → がっ (length difference)
+    if kanjidic_reading.endswith('く') and actual_reading.endswith('っ'):
+        if kanjidic_reading[:-1] == actual_reading[:-1]:
+            return True
+    # Add more rules as needed (e.g., rendaku)
+    return False
 
 def load_kanji_readings(xml_file):
     """Load kanji readings from kanjidic2.xml into a dictionary."""
@@ -121,6 +139,7 @@ def load_kanji_readings(xml_file):
         for reading_group in character.findall('reading_meaning/rmgroup'):
             for reading in reading_group.findall("reading[@r_type='ja_kun']"):
                 reading.text = reading.text.split('.')[0]
+                reading.text = reading.text.replace('-', '')
                 readings.append(reading.text)
             for reading in reading_group.findall("reading[@r_type='ja_on']"):
                 # Convert katakana on'yomi to hiragana
