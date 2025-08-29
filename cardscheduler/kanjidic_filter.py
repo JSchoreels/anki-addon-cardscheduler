@@ -14,7 +14,6 @@ def katakana_to_hiragana(text):
 def process_reading(text):
     # Remove any suffixes starting from a dot and remove dashes as in the original script.
     if text:
-        text = text.split('.')[0]
         text = text.replace('-', '')
     return text
 

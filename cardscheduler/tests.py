@@ -98,6 +98,25 @@ class TestKanjiReadingPairs(unittest.TestCase):
         print(f"Actual pairs for {text}: {sorted(pairs)}")
         self.assertSetEqual(pairs, {'発表会[はっぴょうかい]', '発[はつ]', '表[ひょう]', '会[かい]'})
 
+    def test_shinigami(self):
+        text = '死神[しにがみ]'
+        pairs = get_kanji_reading_pairs(text, self.kanji_readings)
+        print(f"Actual pairs for {text}: {sorted(pairs)}")
+        self.assertSetEqual(pairs, {'死神[しにがみ]', '死[し]', '神[かみ]'})
+
+    def test_fumikiri(self):
+        text = '踏切[ふみきり]'
+        pairs = get_kanji_reading_pairs(text, self.kanji_readings)
+        print(f"Actual pairs for {text}: {sorted(pairs)}")
+        self.assertSetEqual(pairs, {'踏切[ふみきり]', '踏[ふ]', '切[き]'})
+
+    def test_yukue(self):
+        text = '行方[ゆくえ]'
+        pairs = get_kanji_reading_pairs(text, self.kanji_readings)
+        print(f"Actual pairs for {text}: {sorted(pairs)}")
+        self.assertSetEqual(pairs, {'行方[ゆくえ]', '行[ゆ]', '方[]'})
+
+
     def test_csv_analysis_and_output(self):
         """Analyze all CSV entries and write kanji pairs to file."""
         # Load CSV data
@@ -191,7 +210,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
 
         # Test assertion - ensure we have reasonable success rate
         success_rate = ((total_kanji - empty_kanji) / total_kanji * 100)
-        self.assertGreaterEqual(success_rate, 50, f"Success rate {success_rate:.1f}% is too low")
+        self.assertGreaterEqual(success_rate, 99.2, f"Success rate {success_rate:.1f}% is too low")
 
 if __name__ == '__main__':
     unittest.main()
