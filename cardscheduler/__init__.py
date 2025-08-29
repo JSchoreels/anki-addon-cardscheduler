@@ -90,74 +90,50 @@ def split_reading_with_positions(kanji_word, reading, kanji_readings):
     if len(kanji_chars) <= 1:
         return None
 
-    # First try: Simple even split if the reading length matches reasonably
-    kana_count = count_kana_units(reading)
-    if len(kanji_chars) <= kana_count <= len(kanji_chars) * 3:
-        # Try to find a balanced split
-        balanced_split = try_balanced_split(kanji_chars, reading, kanji_readings)
-        if balanced_split:
-            return balanced_split
-
     # Fallback to original position-based matching
     pairs = []
     reading_index = 0
 
     for i, (pos, kanji) in enumerate(zip(kanji_positions, kanji_chars)):
+        max_new_pairs_size = 0
         if i == 0:
             # First kanji: reading starts from beginning
-            start_reading_pos = 0
+            reading_index = 0
         else:
             # Calculate how much kana is between previous kanji and this one
             prev_kanji_pos = kanji_positions[i-1]
             kana_between = pos - prev_kanji_pos - 1
-            reading_index += kana_between
-            start_reading_pos = reading_index
 
         # Find the best matching reading for this kanji
         possible_readings = kanji_readings.get(kanji, [])
         # Sort by length but prefer shorter readings for better balance
-        possible_readings = sorted(possible_readings, key=lambda x: (len(x), x))
+        possible_readings = sorted(set(possible_readings), key=lambda x: (len(x), x))
 
-        found_match = False
-        remaining_reading = reading[start_reading_pos:]
-        remaining_kanji = len(kanji_chars) - i - 1
+        remaining_reading = reading[reading_index:]
 
-        # Be more conservative about matching length
-        max_allowed_length = min(len(remaining_reading) - remaining_kanji, len(remaining_reading) // 2) if remaining_kanji > 0 else len(remaining_reading)
-
+        exact_match_found = False
         for reading_option in possible_readings:
             # Skip readings that are too long for balanced splitting
-            if len(reading_option) > max_allowed_length:
-                continue
+            # if len(reading_option) > max_allowed_length:
+            #     continue
 
             if remaining_reading.startswith(reading_option):
                 # Check if this is a rendaku form and if so, find the base reading
                 base_reading = get_base_reading_for_rendaku(reading_option, possible_readings)
                 pairs.append((kanji, base_reading if base_reading else reading_option))
-                reading_index = start_reading_pos + len(reading_option)
-                found_match = True
-                break
+                max_new_pairs_size = max(max_new_pairs_size, len(reading_option))
+                exact_match_found = True
 
-        if not found_match:
-            # Try fuzzy matching with length restrictions
+        # Try fuzzy matching with length restrictions
+        if not exact_match_found:
             for reading_option in possible_readings:
-                if len(reading_option) > max_allowed_length:
-                    continue
-
-                max_check_length = min(len(reading_option) + 2, len(remaining_reading), max_allowed_length + 2)
-                if (fuzzy := fuzzy_reading_match(reading_option, remaining_reading[:max_check_length])):
+                if (fuzzy := fuzzy_reading_match(reading_option, remaining_reading)):
                     matched_actual, matched_kanjidic = fuzzy
-                    if len(matched_actual) <= max_allowed_length:
-                        pairs.append((kanji, matched_kanjidic))
-                        reading_index = start_reading_pos + len(matched_actual)
-                        found_match = True
-                        break
+                    pairs.append((kanji, matched_kanjidic))
+                    max_new_pairs_size = max(max_new_pairs_size, len(reading_option))
 
-        if not found_match:
-            # If no match found, fall back to original split_reading approach
-            return split_reading(kanji_chars, reading, kanji_readings)
-
-    return pairs if len(pairs) == len(kanji_chars) else None
+        reading_index += max_new_pairs_size
+    return pairs
 
 def try_balanced_split(kanji_chars, reading, kanji_readings):
     """Try to create a balanced split of the reading among kanji characters."""
@@ -462,6 +438,11 @@ def katakana_to_hiragana(text):
     return result
 
 def fuzzy_reading_match(kanjidic_reading, actual_reading):
+    # Handle leading sokuon: っちゃ should match ちゃ
+    # But only if the lengths are reasonable (within 1-2 characters difference)
+    while actual_reading.startswith('っ'):
+        actual_reading = actual_reading[1:]
+
     # Exact match
     if kanjidic_reading == actual_reading:
         return (actual_reading, kanjidic_reading)
@@ -477,13 +458,6 @@ def fuzzy_reading_match(kanjidic_reading, actual_reading):
             sokuon_version = kanjidic_reading[:-len(ending)] + 'っ'
             if actual_reading.startswith(sokuon_version):
                 return (sokuon_version, kanjidic_reading)
-
-    # Handle leading sokuon: っちゃ should match ちゃ
-    # But only if the lengths are reasonable (within 1-2 characters difference)
-    if (actual_reading.startswith('っ') and
-        kanjidic_reading == actual_reading[1:] and
-        len(actual_reading) <= len(kanjidic_reading) + 2):
-        return (actual_reading, kanjidic_reading)
 
     # Multi-character rendaku transformations (exact matches)
     multi_char_rendaku = {
@@ -614,8 +588,11 @@ def load_kanji_readings(xml_file):
         rendaku_readings = []
         for reading in readings:
             rendaku_form = get_rendaku_form(reading)
-            if rendaku_form and rendaku_form not in readings:
+            if rendaku_form:
                 rendaku_readings.append(rendaku_form)
+            rendaku_form_p = get_rendaku_form_p(reading)
+            if rendaku_form_p:
+                rendaku_readings.append(rendaku_form_p)
 
         readings.extend(rendaku_readings)
         kanji_readings[kanji] = readings
@@ -651,6 +628,22 @@ def get_rendaku_form(reading):
         'さ': 'ざ', 'し': 'じ', 'す': 'ず', 'せ': 'ぜ', 'そ': 'ぞ',
         'た': 'だ', 'ち': 'ぢ', 'つ': 'づ', 'て': 'で', 'と': 'ど',
         'は': 'ば', 'ひ': 'び', 'ふ': 'ぶ', 'へ': 'べ', 'ほ': 'ぼ',
+    }
+
+    first_char = reading[0]
+    if first_char in rendaku_map:
+        return rendaku_map[first_char] + reading[1:]
+
+    return None
+
+def get_rendaku_form_p(reading):
+    """Generate rendaku (sequential voicing) form of a reading if applicable."""
+    if not reading:
+        return None
+
+    # Basic rendaku transformations
+    rendaku_map = {
+        'は': 'ぱ', 'ひ': 'ぴ', 'ふ': 'ぷ', 'へ': 'ぺ', 'ほ': '',
     }
 
     first_char = reading[0]
