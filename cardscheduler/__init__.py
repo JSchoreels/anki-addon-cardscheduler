@@ -128,7 +128,8 @@ def split_reading_with_positions(kanji_word, reading, kanji_readings):
                     pairs.append((kanji, matched_kanjidic))
                     max_new_pairs_size = max(max_new_pairs_size, len(reading_option))
 
-        reading_index += max_new_pairs_size
+        kanji_left = len(kanji_chars) - (i + 1) # We might have covered some next kanji with longer readings like ゆめ.みる
+        reading_index = min(reading_index + max_new_pairs_size, len(reading) - kanji_left)
     return pairs
 
 def try_balanced_split(kanji_chars, reading, kanji_readings):
@@ -578,18 +579,22 @@ def load_kanji_readings(xml_file):
                     verb_kanji_part, verb_kana_part = cleaned_text.split('.', 1)
                     full_verb = verb_kanji_part + verb_kana_part
                     if verb_kana_part:
-                        # -i form (masu-stem)
                         if verb_kana_part.endswith(('う', 'く', 'む', 'ぬ', 'る', 'つ', 'す', 'ぐ', 'ぶ')):
+                            # -i form (masu-stem)
                             i_stem = verb_kanji_part + get_i_stem_ending(verb_kana_part)
                             if i_stem != verb_kanji_part:
                                 variations.append(i_stem)
-                        if full_verb != verb_kanji_part:
-                            variations.append(full_verb)
-                        # Intermediate form (remove final る)
-                        if verb_kana_part.endswith('る'):
+                            # Intermediate form (remove final る)
                             intermediate = verb_kanji_part + verb_kana_part[:-1]
                             if intermediate not in variations:
                                 variations.append(intermediate)
+                        if verb_kana_part.endswith(('い')):
+                            # Intermediate form (remove final い)
+                            intermediate = verb_kanji_part + verb_kana_part[:-1]
+                            if intermediate not in variations:
+                                variations.append(intermediate)
+                        if full_verb != verb_kanji_part:
+                            variations.append(full_verb)
 
                 # Add rendaku variations
                 rendaku_variations = []

@@ -36,11 +36,11 @@ class TestKanjiReadingPairs(unittest.TestCase):
         print(f"Actual pairs for {text}: {pairs}")
         self.assertSetEqual(pairs, {'一[いち]', '一[いつ]', '一挙[いっきょ]', '挙[きょ]'})
 
-    def test_rendaku(self):
+    def test_aozora(self):
         text = '青空[あおぞら]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'青[あお]', '青空[あおぞら]', '空[そら]'})
+        self.assertSetEqual(pairs, {'空[そら]', '青[あお]', '青[あお.い]', '青空[あおぞら]'})
 
     def test_naze(self):
         text = '何故[なぜ]'
@@ -156,6 +156,24 @@ class TestKanjiReadingPairs(unittest.TestCase):
         print(f"Actual pairs for {text}: {pairs}")
         self.assertSetEqual(pairs, {'帯[おび]', '止[ど.め]', '帯止め[おびどめ]', '止[と.める]', '帯[お.びる]'})
 
+    def test_yumemiru(self):
+        text = '夢見[ゆめみ]る'
+        pairs = get_kanji_reading_pairs(text, self.kanji_readings)
+        print(f"Actual pairs for {text}: {pairs}")
+        self.assertSetEqual(pairs, {'夢[ゆめ.みる]', '夢[ゆめ]', '夢見[ゆめみ]', '見[み.る]'})
+
+    def test_machigai(self):
+        text = '間違[まちが]い'
+        pairs = get_kanji_reading_pairs(text, self.kanji_readings)
+        print(f"Actual pairs for {text}: {pairs}")
+        self.assertSetEqual(pairs, {'違[ちが.い]', '違[ちが.う]', '間違[まちが]', '間[ま]'})
+
+    def test_toonori(self):
+        text = '遠乗[とおの]り'
+        pairs = get_kanji_reading_pairs(text, self.kanji_readings)
+        print(f"Actual pairs for {text}: {pairs}")
+        self.assertSetEqual(pairs, {'遠[とお.い]', '乗[の.る]', '遠乗[とおの]'})
+
     def test_csv_analysis_and_output(self):
         """Analyze all CSV entries and write kanji pairs to file."""
         # Load CSV data
@@ -249,7 +267,8 @@ class TestKanjiReadingPairs(unittest.TestCase):
 
         # Test assertion - ensure we have reasonable success rate
         success_rate = ((total_kanji - empty_kanji) / total_kanji * 100)
-        self.assertGreaterEqual(success_rate, 95.3, f"Success rate {success_rate:.2f}% is too low")
+        print(f"Success rate: {success_rate:.2f}%")
+        self.assertGreaterEqual(success_rate, 97.12, f"Success rate {success_rate:.2f}% is too low")
 
 if __name__ == '__main__':
     unittest.main()
