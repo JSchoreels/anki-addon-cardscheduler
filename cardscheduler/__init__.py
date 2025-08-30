@@ -44,32 +44,26 @@ def get_kanji_reading_pairs(text, kanji_readings):
             # Extract only kanji characters from compound word (after expansion)
             kanji_chars = extract_kanji_only(expanded_kanji_word)
 
-            if len(kanji_chars) > 1:
-                # Always add the compound word itself (with original form including 々)
-                kanji_pairs.add(f"{kanji_word}[{reading}]")
+            # Always add the compound word itself (with original form including 々)
+            kanji_pairs.add(f"{kanji_word}[{reading}]")
 
-                # For mixed kanji-kana words, use position-aware splitting
-                reading_parts = split_reading_with_positions(expanded_kanji_word, reading, kanji_readings)
-                if reading_parts:
-                    # For repeated kanji (when 々 is used), only add unique kanji-reading pairs
-                    unique_pairs = set()
-                    for kanji, reading_part in reading_parts:
-                        unique_pairs.add((kanji, reading_part))
+            # For mixed kanji-kana words, use position-aware splitting
+            reading_parts = split_reading_with_positions(expanded_kanji_word, reading, kanji_readings)
+            if reading_parts:
+                # For repeated kanji (when 々 is used), only add unique kanji-reading pairs
+                unique_pairs = set()
+                for kanji, reading_part in reading_parts:
+                    unique_pairs.add((kanji, reading_part))
 
-                    for kanji, reading_part in unique_pairs:
-                        kanji_pairs.add(f"{kanji}[{reading_part}]")
-                        processed_kanji.add(kanji)
-                else:
-                    # If splitting fails, add individual kanji with empty readings
-                    unique_kanji = set(kanji_chars)  # Remove duplicates
-                    for kanji in unique_kanji:
-                        kanji_pairs.add(f"{kanji}[]")
-                        processed_kanji.add(kanji)
+                for kanji, reading_part in unique_pairs:
+                    kanji_pairs.add(f"{kanji}[{reading_part}]")
+                    processed_kanji.add(kanji)
             else:
-                # Single kanji after filtering
-                if kanji_chars:
-                    kanji_pairs.add(f"{kanji_chars[0]}[{reading}]")
-                    processed_kanji.add(kanji_chars[0])
+                # If splitting fails, add individual kanji with empty readings
+                unique_kanji = set(kanji_chars)  # Remove duplicates
+                for kanji in unique_kanji:
+                    kanji_pairs.add(f"{kanji}[]")
+                    processed_kanji.add(kanji)
 
     # Handle standalone kanji without readings
     for char in text:
@@ -88,9 +82,6 @@ def split_reading_with_positions(kanji_word, reading, kanji_readings):
         if '\u4e00' <= char <= '\u9fff':  # Is kanji
             kanji_positions.append(i)
             kanji_chars.append(char)
-
-    if len(kanji_chars) <= 1:
-        return None
 
     # Fallback to original position-based matching
     pairs = []

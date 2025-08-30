@@ -186,6 +186,19 @@ class TestKanjiReadingPairs(unittest.TestCase):
         print(f"Actual pairs for {text}: {pairs}")
         self.assertSetEqual(pairs, {'命[いのち]', '恩[おん]', '人[じん]', '命の恩人[いのちのおんじん]'})
 
+    def test_naku(self):
+        text = '泣[な]き 声[ごえ]'
+        pairs = get_kanji_reading_pairs(text, self.kanji_readings)
+        print(f"Actual pairs for {text}: {pairs}")
+        self.assertSetEqual(pairs, {'声[ごえ]', '泣[な.く]', '泣き[なき]'})
+
+    def test_atamagaitai(self):
+        text = '頭[あたま]が 痛[いた]い'
+        pairs = get_kanji_reading_pairs(text, self.kanji_readings)
+        print(f"Actual pairs for {text}: {pairs}")
+        self.assertSetEqual(pairs, {'頭が[あたまが]', '痛[いた.む]', '頭[あたま]', '痛[いた.い]', '痛い[いたい]'})
+
+
     def test_csv_analysis_and_output(self):
         """Analyze all CSV entries and write kanji pairs to file."""
         # Load CSV data
