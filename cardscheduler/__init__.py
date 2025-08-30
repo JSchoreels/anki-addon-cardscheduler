@@ -27,11 +27,13 @@ def get_kanji_reading_pairs(text, kanji_readings):
     """Extract kanji-reading pairs using Kanjidic, falling back to kanji-only."""
     kanji_pairs = set()
     # Updated pattern to allow mixed kanji and kana in the first group
-    pattern = r'([一-龯ぁ-ゖァ-ヺー々]+)\[([ぁ-ゖァ-ヺー]+)\]'  # Add 々 to the pattern
+    pattern = r'([一-龯ぁ-ゖァ-ヺー々]+)\[([ぁ-ゖァ-ヺー]+)\]([ぁ-ゖァ-ヺー]*)'  # Add 々 to the pattern
     matches = re.findall(pattern, text)
 
     processed_kanji = set()
-    for kanji_word, reading in matches:
+    for kanji_word, reading, conjugation in matches:
+        kanji_word = kanji_word + conjugation
+        reading = reading + conjugation  # Combine reading and conjugation for full reading
         if len(kanji_word) == 1:
             kanji_pairs.add(f"{kanji_word}[{reading}]")
             processed_kanji.add(kanji_word)
@@ -95,7 +97,6 @@ def split_reading_with_positions(kanji_word, reading, kanji_readings):
     reading_index = 0
 
     for i, (pos, kanji) in enumerate(zip(kanji_positions, kanji_chars)):
-        max_new_pairs_size = 0
         if i == 0:
             # First kanji: reading starts from beginning
             reading_index = 0
@@ -103,6 +104,15 @@ def split_reading_with_positions(kanji_word, reading, kanji_readings):
             # Calculate how much kana is between previous kanji and this one
             prev_kanji_pos = kanji_positions[i-1]
             kana_between = pos - prev_kanji_pos - 1
+            if kana_between > 0:
+                if last_extended_reading_matched[1:] == kanji_word[prev_kanji_pos+1:prev_kanji_pos+1+len(last_extended_reading_matched[1:])]:
+                    kana_between -= len(last_extended_reading_matched[1:])
+                # for i_kana_matched in range(1, len(last_extended_reading_matched)):
+                #     if last_extended_reading_matched[i_kana_matched] == kanji_word[prev_kanji_pos + i_kana_matched]:
+                #         kana_between -= 1
+            kanji_word_chars_left = len(kanji_word) - pos  # We might have covered some next kanji with longer readings like ゆめ.みる
+            reading_index = min(reading_index + max_new_pairs_size, len(reading) - kanji_word_chars_left) + kana_between
+        max_new_pairs_size = 0
 
         # Find the best matching reading for this kanji
         possible_readings = kanji_readings[kanji]
@@ -115,9 +125,10 @@ def split_reading_with_positions(kanji_word, reading, kanji_readings):
                                for extended_reading in possible_readings[base_reading]]:
 
             if remaining_reading.startswith(extended_reading):
-                # Check if this is a rendaku form and if so, find the base reading
                 pairs.append((kanji, base_reading))
-                max_new_pairs_size = max(max_new_pairs_size, len(extended_reading))
+                if len(extended_reading) > max_new_pairs_size:
+                    max_new_pairs_size = len(extended_reading)
+                    last_extended_reading_matched = extended_reading
                 exact_match_found = True
 
         # Try fuzzy matching with length restrictions
@@ -128,8 +139,7 @@ def split_reading_with_positions(kanji_word, reading, kanji_readings):
                     pairs.append((kanji, matched_kanjidic))
                     max_new_pairs_size = max(max_new_pairs_size, len(reading_option))
 
-        kanji_left = len(kanji_chars) - (i + 1) # We might have covered some next kanji with longer readings like ゆめ.みる
-        reading_index = min(reading_index + max_new_pairs_size, len(reading) - kanji_left)
+
     return pairs
 
 def try_balanced_split(kanji_chars, reading, kanji_readings):
