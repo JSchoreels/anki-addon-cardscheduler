@@ -105,23 +105,19 @@ def split_reading_with_positions(kanji_word, reading, kanji_readings):
             kana_between = pos - prev_kanji_pos - 1
 
         # Find the best matching reading for this kanji
-        possible_readings = kanji_readings.get(kanji, [])
-        # Sort by length but prefer shorter readings for better balance
-        possible_readings = sorted(set(possible_readings), key=lambda x: (len(x), x))
+        possible_readings = kanji_readings[kanji]
 
         remaining_reading = reading[reading_index:]
 
         exact_match_found = False
-        for reading_option in possible_readings:
-            # Skip readings that are too long for balanced splitting
-            # if len(reading_option) > max_allowed_length:
-            #     continue
+        for (base_reading, extended_reading) in [(base_reading, extended_reading)
+                               for base_reading in possible_readings
+                               for extended_reading in possible_readings[base_reading]]:
 
-            if remaining_reading.startswith(reading_option):
+            if remaining_reading.startswith(extended_reading):
                 # Check if this is a rendaku form and if so, find the base reading
-                base_reading = get_base_reading_for_rendaku(reading_option, possible_readings)
-                pairs.append((kanji, base_reading if base_reading else reading_option))
-                max_new_pairs_size = max(max_new_pairs_size, len(reading_option))
+                pairs.append((kanji, base_reading))
+                max_new_pairs_size = max(max_new_pairs_size, len(extended_reading))
                 exact_match_found = True
 
         # Try fuzzy matching with length restrictions
@@ -148,8 +144,14 @@ def try_balanced_split(kanji_chars, reading, kanji_readings):
                 continue
 
             # Check if both parts are valid readings for their respective kanji
-            first_kanji_readings = kanji_readings.get(kanji_chars[0], [])
-            second_kanji_readings = kanji_readings.get(kanji_chars[1], [])
+            first_kanji_readings = []
+            second_kanji_readings = []
+            if kanji_chars[0] in kanji_readings:
+                for v in kanji_readings[kanji_chars[0]].values():
+                    first_kanji_readings.extend(v)
+            if kanji_chars[1] in kanji_readings:
+                for v in kanji_readings[kanji_chars[1]].values():
+                    second_kanji_readings.extend(v)
 
             # Try exact matches first
             first_exact_reading = None
@@ -234,7 +236,19 @@ def try_balanced_split(kanji_chars, reading, kanji_readings):
                 third_dict_reading = None
 
                 # Check first part
-                if first_part in kanji_readings.get(kanji_chars[0], []):
+                first_kanji_readings = []
+                second_kanji_readings = []
+                third_kanji_readings = []
+                if kanji_chars[0] in kanji_readings:
+                    for v in kanji_readings[kanji_chars[0]].values():
+                        first_kanji_readings.extend(v)
+                if kanji_chars[1] in kanji_readings:
+                    for v in kanji_readings[kanji_chars[1]].values():
+                        second_kanji_readings.extend(v)
+                if kanji_chars[2] in kanji_readings:
+                    for v in kanji_readings[kanji_chars[2]].values():
+                        third_kanji_readings.extend(v)
+                if first_part in first_kanji_readings:
                     first_dict_reading = first_part
                 else:
                     base_reading = get_base_reading_for_rendaku(first_part, kanji_readings.get(kanji_chars[0], []))
@@ -242,7 +256,7 @@ def try_balanced_split(kanji_chars, reading, kanji_readings):
                         first_dict_reading = base_reading
 
                 # Check second part
-                if second_part in kanji_readings.get(kanji_chars[1], []):
+                if second_part in second_kanji_readings:
                     second_dict_reading = second_part
                 else:
                     base_reading = get_base_reading_for_rendaku(second_part, kanji_readings.get(kanji_chars[1], []))
@@ -250,7 +264,7 @@ def try_balanced_split(kanji_chars, reading, kanji_readings):
                         second_dict_reading = base_reading
 
                 # Check third part
-                if third_part in kanji_readings.get(kanji_chars[2], []):
+                if third_part in third_kanji_readings:
                     third_dict_reading = third_part
                 else:
                     base_reading = get_base_reading_for_rendaku(third_part, kanji_readings.get(kanji_chars[2], []))
@@ -274,7 +288,10 @@ def split_reading(kanji_chars, reading, kanji_readings):
 
         for i, kanji in enumerate(kanji_chars):
             kana_unit = kana_units[i]
-            possible_readings = kanji_readings.get(kanji, [])
+            possible_readings = []
+            if kanji in kanji_readings:
+                for v in kanji_readings[kanji].values():
+                    possible_readings.extend(v)
 
             base_reading = None
 
@@ -319,7 +336,10 @@ def split_reading(kanji_chars, reading, kanji_readings):
 
     for kanji in kanji_chars:
         found_match = False
-        possible_readings = kanji_readings.get(kanji, [])
+        possible_readings = []
+        if kanji in kanji_readings:
+            for v in kanji_readings[kanji].values():
+                possible_readings.extend(v)
         possible_readings = sorted(possible_readings, key=len, reverse=True)
 
         # First, try fuzzy matching (which includes sokuon transformations)
@@ -373,7 +393,10 @@ def split_reading(kanji_chars, reading, kanji_readings):
         kana_units = extract_kana_units(normalized_reading)
         for i, kanji in enumerate(kanji_chars):
             kana_unit = kana_units[i]
-            possible_readings = kanji_readings.get(kanji, [])
+            possible_readings = []
+            if kanji in kanji_readings:
+                for v in kanji_readings[kanji].values():
+                    possible_readings.extend(v)
 
             # Try to find the base dictionary reading that corresponds to this segment
             base_reading = None
@@ -532,70 +555,70 @@ def fuzzy_reading_match(kanjidic_reading, actual_reading):
     return None
 
 def load_kanji_readings(xml_file):
-    """Load kanji readings from kanjidic2_light.xml into a dictionary."""
+    """Load kanji readings from kanjidic2_light.xml into a dictionary.
+    For each kanji, map verb_kanji_part reading to a list of all its variations."""
     kanji_readings = {}
     tree = ET.parse(xml_file)
     root = tree.getroot()
 
     for character in root.findall('character'):
         kanji = character.find('literal').text
-        readings = []
+        readings_map = {}
 
         # Get kun'yomi readings (Japanese readings)
         for reading in character.findall('ja_kun'):
             reading_text = reading.text
             if reading_text:
-                # Add the base form (part before dot)
-                base_reading = reading_text.split('.')[0]
-                base_reading = base_reading.replace('-', '')
-                readings.append(base_reading)
-
+                variations = []
                 # For readings with dots, generate verb forms
-                if '.' in reading_text:
-                    verb_part = reading_text.split('.', 1)[1]  # Get part after first dot
-                    verb_part = verb_part.replace('-', '')
+                if not '.' in reading_text:
+                    variations.append(reading_text)
+                else:
+                    cleaned_text = reading_text.replace('-', '')
+                    verb_kanji_part, verb_kana_part = cleaned_text.split('.', 1)
+                    full_verb = verb_kanji_part + verb_kana_part
+                    if verb_kana_part:
+                        # -i form (masu-stem)
+                        if verb_kana_part.endswith(('う', 'く', 'む', 'ぬ', 'る', 'つ', 'す', 'ぐ', 'ぶ')):
+                            i_stem = verb_kanji_part + get_i_stem_ending(verb_kana_part)
+                            if i_stem != verb_kanji_part:
+                                variations.append(i_stem)
+                        if full_verb != verb_kanji_part:
+                            variations.append(full_verb)
+                        # Intermediate form (remove final る)
+                        if verb_kana_part.endswith('る'):
+                            intermediate = verb_kanji_part + verb_kana_part[:-1]
+                            if intermediate not in variations:
+                                variations.append(intermediate)
 
-                    # Generate common verb form variants
-                    if verb_part:
-                        # Add the -i form (masu-stem): ふ.む -> ふみ, し.ぬ -> しに
-                        if verb_part.endswith('う') or verb_part.endswith('く') or verb_part.endswith('む') or verb_part.endswith('ぬ') or verb_part.endswith('る') or verb_part.endswith('つ') or verb_part.endswith('す') or verb_part.endswith('ぐ') or verb_part.endswith('ぶ'):
-                            # For u-ending verbs, create i-stem by replacing last character
-                            i_stem = base_reading + get_i_stem_ending(verb_part)
-                            if i_stem != base_reading:  # Only add if different
-                                readings.append(i_stem)
+                # Add rendaku variations
+                rendaku_variations = []
+                for variation in variations:
+                    rendaku_form = get_rendaku_form(variation)
+                    if rendaku_form:
+                        rendaku_variations.append(rendaku_form)
+                    rendaku_form_p = get_rendaku_form_p(variation)
+                    if rendaku_form_p:
+                        rendaku_variations.append(rendaku_form_p)
+                variations.extend(rendaku_variations)
 
-                        # Add the full verb form: ふ.む -> ふむ, し.ぬ -> しぬ
-                        full_verb = base_reading + verb_part
-                        if full_verb != base_reading:
-                            readings.append(full_verb)
-
-                        # For longer verb parts, also try intermediate forms
-                        # Example: ふ.まえる -> ふまえ (without final る)
-                        if len(verb_part) > 2 and verb_part.endswith('る'):
-                            intermediate = base_reading + verb_part[:-1]  # Remove final る
-                            if intermediate not in readings:
-                                readings.append(intermediate)
+                readings_map[reading_text] = variations
 
         # Get on'yomi readings (Chinese readings)
         for reading in character.findall('ja_on'):
             reading_text = reading.text
             if reading_text:
-                # Convert katakana on'yomi to hiragana for consistency
-                readings.append(katakana_to_hiragana(reading_text))
+                hiragana = katakana_to_hiragana(reading_text)
+                variations = [hiragana]
+                rendaku_form = get_rendaku_form(hiragana)
+                if rendaku_form:
+                    variations.append(rendaku_form)
+                rendaku_form_p = get_rendaku_form_p(hiragana)
+                if rendaku_form_p:
+                    variations.append(rendaku_form_p)
+                readings_map[reading_text] = variations
 
-        # Add rendaku (sequential voicing) variations for common readings
-        # These are needed for exact matching in compound words
-        rendaku_readings = []
-        for reading in readings:
-            rendaku_form = get_rendaku_form(reading)
-            if rendaku_form:
-                rendaku_readings.append(rendaku_form)
-            rendaku_form_p = get_rendaku_form_p(reading)
-            if rendaku_form_p:
-                rendaku_readings.append(rendaku_form_p)
-
-        readings.extend(rendaku_readings)
-        kanji_readings[kanji] = readings
+        kanji_readings[kanji] = readings_map
     return kanji_readings
 
 def get_i_stem_ending(verb_ending):
@@ -671,6 +694,13 @@ def extract_kana_units(text):
 
 def get_base_reading_for_rendaku(reading, possible_readings):
     """Find the base reading for a rendaku form, if applicable."""
+    # possible_readings may be a list of lists, flatten if needed
+    if isinstance(possible_readings, dict):
+        all_readings = []
+        for v in possible_readings.values():
+            all_readings.extend(v)
+        possible_readings = all_readings
+
     # Common rendaku transformations (voiced -> unvoiced)
     reverse_rendaku_map = {
         'が': 'か', 'ぎ': 'き', 'ぐ': 'く', 'げ': 'け', 'ご': 'こ',

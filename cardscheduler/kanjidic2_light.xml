@@ -5841,6 +5841,8 @@
 		<ja_kun>いま</ja_kun>
 		<ja_on>こん</ja_on>
 		<ja_on>きん</ja_on>
+        <!-- Extended -->
+        <ja_on>こ</ja_on>
 	</character>
 	<character>
 		<literal>困</literal>
