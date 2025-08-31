@@ -1,3 +1,5 @@
+import statistics
+
 from aqt import mw
 from aqt.utils import showInfo
 import re
@@ -45,7 +47,7 @@ def get_kanji_reading_pairs(text, kanji_readings):
             kanji_chars = extract_kanji_only(expanded_kanji_word)
 
             # Always add the compound word itself (with original form including 々)
-            kanji_pairs.add(f"{kanji_word}[{reading}]")
+            # kanji_pairs.add(f"{kanji_word}[{reading}]")
 
             # For mixed kanji-kana words, use position-aware splitting
             reading_parts = split_reading_with_positions(expanded_kanji_word, reading, kanji_readings)
@@ -752,7 +754,26 @@ def expand_iteration_marks(kanji_word):
     # Join the parts back together
     return ''.join(parts)
 
-def compute_order():
+class CardInfo:
+    def __init__(self, card_id, furigana_text, interval):
+        self.card_id = card_id
+        self.furigana_text = furigana_text
+        self.interval = interval
+        self.score = 0  # Initialize score
+
+    def __repr__(self):
+        return f"CardInfo(card_id={self.card_id}, furigana_text='{self.furigana_text}', interval={self.interval}, score={self.score})"
+
+class KanjiReadingInfo:
+    def __init__(self):
+        self.matched_cards = set()
+        self.average_interval = 0.0
+
+    def __repr__(self):
+        return f"KanjiReadingInfo(average_interval={self.average_interval}, matched_cards_count={len(self.matched_cards)})"
+
+def compute_scores(cards):
+    """Compute familiarity scores for a list of CardInfo objects."""
     # Get the absolute path to the XML file relative to this module
     current_dir = os.path.dirname(os.path.abspath(__file__))
     xml_file = os.path.join(current_dir, 'kanjidic2_light.xml')
@@ -763,134 +784,137 @@ def compute_order():
     except FileNotFoundError:
         print(f"Error: Could not find kanjidic2_light.xml at {xml_file}")
         showInfo(f"Error: kanjidic2_light.xml not found. Please ensure the file is in the cardscheduler directory.")
-        return
+        return {}
     except ET.ParseError as e:
         print(f"Error parsing XML file: {e}")
         showInfo(f"Error: Invalid XML format in kanjidic2_light.xml")
-        return
+        return {}
     except Exception as e:
         print(f"Unexpected error loading kanji readings: {e}")
         showInfo(f"Error loading kanji data: {str(e)}")
-        return
+        return {}
 
-    field_name = "ID"
     kanji_reading_to_cards = {}
-    card_scores = {}
 
     # Step 1: Build kanji-reading pairs to cards mapping
-    all_cids = mw.col.find_cards('"deck:Japan::1. Vocabulary"')
-    new_cids = mw.col.find_cards('"deck:Japan::1. Vocabulary" is:new')
-
-    for cid in all_cids:
-        card = mw.col.get_card(cid)
-        note = card.note()
-        field_value = get_field_value(note, field_name)
-        if not field_value:
+    for card_info in cards:
+        if not card_info.furigana_text:
             continue
-        kanji_reading_pairs = get_kanji_reading_pairs(field_value, kanji_readings)
+        kanji_reading_pairs = get_kanji_reading_pairs(card_info.furigana_text, kanji_readings)
         for pair in kanji_reading_pairs:
-            kanji_reading_to_cards.setdefault(pair, set()).add(card)
+            if pair not in kanji_reading_to_cards:
+                kanji_reading_to_cards[pair] = KanjiReadingInfo()
+            kanji_reading_to_cards[pair].matched_cards.add(card_info)
+
+    # Calculate average intervals for each kanji-reading pair
+    for pair, info in kanji_reading_to_cards.items():
+        info.average_interval = statistics.fmean(
+            [card.interval for card in info.matched_cards if card.interval > 0]
+            or [0.0]
+        )
 
     # Debug: Show global kanji-reading averages
     print("Global kanji-reading averages:")
-    for pair, cards in kanji_reading_to_cards.items():
-        total_weighted_ivl = 0
-        total_weight = 0
-        for card in cards:
-            note = card.note()
-            field_value = get_field_value(note, field_name)
-            pair_count = len(get_kanji_reading_pairs(field_value, kanji_readings))
-            if pair_count > 0:
-                weight = 1.0# / pair_count
-                total_weighted_ivl += card.ivl * weight
-                total_weight += weight
+    for pair, info in kanji_reading_to_cards.items():
+        print(f"Pair '{pair}': average_interval={info.average_interval:.2f}, matched_cards_count={len(info.matched_cards)}")
 
-        if total_weight > 0:
-            global_avg = total_weighted_ivl / total_weight
-            print(f"Pair '{pair}': global_avg={global_avg:.2f}, total_weight={total_weight:.2f}")
-
-    # Step 2: Compute score for each card
-    for cid in all_cids:
-        card = mw.col.get_card(cid)
-        note = card.note()
-        field_value = get_field_value(note, field_name)
-        if not field_value:
-            card_scores[card.id] = 0
+    # Step 2: Compute score for each card (simplified)
+    for card_info in cards:
+        if not card_info.furigana_text:
+            card_info.score = 0
             continue
-        kanji_reading_pairs = get_kanji_reading_pairs(field_value, kanji_readings)
+        kanji_reading_pairs = get_kanji_reading_pairs(card_info.furigana_text, kanji_readings)
+        intervals = [
+            kanji_reading_to_cards[pair].average_interval
+            for pair in kanji_reading_pairs
+            if pair in kanji_reading_to_cards
+        ]
+        card_info.score = sum(intervals) / len(intervals) if intervals else 0
 
-        pair_scores = []
+def process_collection(collection=None, dry_run=False):
+    if not collection:
+        collection = mw.col
+    else:
+        collection = collection
 
-        for pair in kanji_reading_pairs:
-            if pair in kanji_reading_to_cards:
-                pair_total_weighted_ivl = 0
-                pair_total_weight = 0
+    """Process the entire collection: extract cards, compute scores, and update fields."""
+    cards = load_cards(collection)
 
-                for other_card in kanji_reading_to_cards[pair]:
-                    if other_card.id != card.id:
-                        other_note = other_card.note()
-                        other_field_value = get_field_value(other_note, field_name)
-                        other_pair_count = len(get_kanji_reading_pairs(other_field_value, kanji_readings))
-
-                        if other_pair_count > 0:
-                            weight = 1.0 #/ other_pair_count
-                            pair_total_weighted_ivl += other_card.ivl * weight
-                            pair_total_weight += weight
-
-                if pair_total_weight > 0:
-                    pair_weighted_avg = pair_total_weighted_ivl / pair_total_weight
-                    pair_scores.append(pair_weighted_avg)
-                    print(f"Pair '{pair}' in '{field_value}': avg={pair_weighted_avg:.2f}, total_weight={pair_total_weight:.2f}")
-
-        # Simple average: each kanji-reading pair contributes equally to the final score
-        if card.id == 1755191995946:
-            print(f"Card ID {card.id} ({field_value}) pair scores: {pair_scores}")
-            print(f"kanji_reading_pairs : {kanji_reading_pairs}")
-        card_scores[card.id] = sum(pair_scores) / len(pair_scores) if pair_scores else 0
-
-    # Sort cards by score in ascending order (lowest scores first - least familiar)
-    sorted_cards = sorted(card_scores.items(), key=lambda x: x[1], reverse=False)
+    # Compute scores
+    compute_scores(cards)
 
     print("Cards sorted by familiarity score (least known first):")
     print("=" * 60)
 
-    # Update MyPosition field for all cards
-    update_count = 0
-    for card_id, score in sorted_cards:
-        # Only process new cards
-        if card_id in new_cids:
-            card = mw.col.get_card(card_id)
-            note = card.note()
-            id_field = get_field_value(note, field_name)
+    update_only_new_cards = True
+    if update_only_new_cards:
+        new_cids = collection.find_cards('"deck:Japan::1. Vocabulary" is:new')
+        card_id_filter = lambda card_id: card_id in new_cids
+    else:
+        card_id_filter = lambda card_id: True
 
-            print(f"Score: {score:8.1f} | ID: {id_field}")
-
-            if update_my_position_field(card, score):
-                update_count += 1
+    print_scores(cards, filter=card_id_filter)
+    update_count = update_cards_score(cards, collection, filter=card_id_filter, dry_run=dry_run)
 
     print("=" * 60)
-    print(f"Total cards processed: {len([cid for cid, _ in sorted_cards if cid in new_cids])}")
+    print(f"Total cards processed: {len([card for card in cards if card_id_filter(card.card_id)])}")
     print(f"MyPosition field updated for {update_count} cards")
 
     # Show a message to the user
-    showInfo(f"Updated MyPosition field for {update_count} cards")
+    try:
+        showInfo(f"Updated MyPosition field for {update_count} cards")
+    except Exception as e:
+        print(f"Updated MyPosition field for {update_count} cards")
 
-def update_my_position_field(card, score):
-    """Update the MyPosition field with the computed score"""
+
+def load_cards(collection, furigana_plain_field="ID"):
+    # Extract card information
+    all_cids = collection.find_cards('"deck:Japan::1. Vocabulary"')
+    cards = []
+    for cid in all_cids:
+        card = collection.get_card(cid)
+        note = card.note()
+        field_value = get_field_value(note, furigana_plain_field)
+        cards.append(CardInfo(card.id, field_value, card.ivl))
+    return cards
+
+
+def print_scores(cards, filter=lambda card: True):
+    # Sort cards by score in ascending order (lowest scores first - least familiar)
+    sorted_cards = sorted([(card.card_id, card.score, card.furigana_text) for card in cards], key=lambda x: x[1], reverse=False)
+    for card_id, score, furigana_text in sorted_cards:
+        if filter(card_id):
+            print(f"Score: {score:8.1f} | ID: {furigana_text}")
+
+
+def update_cards_score(cards_score, collection, score_field="MyPosition", filter=lambda card: True, dry_run=False):
+    update_count = 0
+    for card_id, score in [(card.card_id, card.score) for card in cards_score]:
+        if filter(card_id):
+            if dry_run:
+                #print(f"Dry run: would update card ID {card_id} with score {score:.1f}")
+                update_count += 1
+            elif update_card_score(card_id, score, collection, score_field=score_field):
+                update_count += 1
+    return update_count
+
+
+def update_card_score(card_id, score, collection, score_field="MyPosition"):
+    card = collection.get_card(card_id)
     note = card.note()
     note_type = note.note_type()
 
     # Find the MyPosition field index
     my_position_field_index = None
     for i, fld in enumerate(note_type['flds']):
-        if fld['name'] == 'MyPosition':
+        if fld['name'] == score_field:
             my_position_field_index = i
             break
 
     if my_position_field_index is not None:
         # Update the field with the score (rounded to 1 decimal place)
         note.fields[my_position_field_index] = str(round(score, 1))
-        mw.col.update_note(note)  # Use the modern API instead of flush()
+        collection.update_note(note)  # Use the modern API instead of flush()
         return True
     else:
         print(f"MyPosition field not found in note type: {note_type['name']}")
