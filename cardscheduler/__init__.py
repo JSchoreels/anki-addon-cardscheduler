@@ -760,9 +760,10 @@ class CardInfo:
         self.furigana_text = furigana_text
         self.interval = interval
         self.score = 0  # Initialize score
+        self.unknown_kanji_readings = 0
 
     def __repr__(self):
-        return f"CardInfo(card_id={self.card_id}, furigana_text='{self.furigana_text}', interval={self.interval}, score={self.score})"
+        return f"CardInfo(id={self.card_id}, furigana='{self.furigana_text}', interval={self.interval}, score={self.score}, unknowns={self.unknown_kanji_readings})"
 
 class KanjiReadingInfo:
     def __init__(self):
@@ -830,6 +831,7 @@ def compute_scores(cards):
             if pair in kanji_reading_to_cards
         ]
         card_info.score = sum(intervals) / len(intervals) if intervals else 0
+        card_info.unknown_kanji_readings = intervals.count(0.0)
 
 def process_collection(collection=None, dry_run=False):
     if not collection:
@@ -881,10 +883,10 @@ def load_cards(collection, furigana_plain_field="ID"):
 
 def print_scores(cards, filter=lambda card: True):
     # Sort cards by score in ascending order (lowest scores first - least familiar)
-    sorted_cards = sorted([(card.card_id, card.score, card.furigana_text) for card in cards], key=lambda x: x[1], reverse=False)
-    for card_id, score, furigana_text in sorted_cards:
-        if filter(card_id):
-            print(f"Score: {score:8.1f} | ID: {furigana_text}")
+    sorted_cards = sorted(cards, key=lambda c: c.score, reverse=False)
+    for card in sorted_cards:
+        if filter(card.card_id):
+            print(f"Score: {card.score:8.1f} | ID: {card.furigana_text:24s} | Unknown readings: {card.unknown_kanji_readings}")
 
 
 def update_cards_score(cards_score, collection, score_field="MyPosition", filter=lambda card: True, dry_run=False):

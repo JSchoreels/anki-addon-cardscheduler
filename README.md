@@ -1,3 +1,3 @@
-- [] Attribute a score for words cards by the average of interval each kanji have in others cards (with the same readings)
-- [] Flag how many unknown readings a word has
-- [] Create a sort algorithm taking in account the word Score and how many Unknown readings it has (N+1)
+- [x] Attribute a score for words cards by the average of interval each kanji have in others cards (with the same readings)
+- [x] Flag how many unknown readings a word has
+- [ ] Create a sort algorithm taking in account the word Score and how many Unknown readings it has (N+1)
