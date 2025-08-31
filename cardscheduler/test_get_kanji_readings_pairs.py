@@ -4,7 +4,7 @@ import csv
 from pathlib import Path
 from collections import defaultdict
 
-from cardscheduler.__init__ import get_kanji_reading_pairs, load_kanji_readings
+from cardscheduler.__init__ import get_kanji_reading_pairs, load_kanji_dictionnary_readings
 
 def analyze_empty_brackets(kanji_pairs):
     """Analyze and report the percentage of empty brackets in kanji pairs."""
@@ -19,10 +19,10 @@ def analyze_empty_brackets(kanji_pairs):
     return percentage, empty_bracket_pairs, list(kanji_pairs - set(empty_bracket_pairs))
 
 class TestKanjiReadingPairs(unittest.TestCase):
-    def setUp(self):
-        # kanjidic2_light.xml is in the same directory as this test file
-        kanjidic_path = Path(__file__).parent / 'kanjidic2_light.xml'
-        self.kanji_readings = load_kanji_readings(str(kanjidic_path))
+
+    @classmethod
+    def setUp(cls):
+        cls.kanji_readings = load_kanji_dictionnary_readings()
 
     def test_jogakkou(self):
         text = '女学校[じょがっこう]'

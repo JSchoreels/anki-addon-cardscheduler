@@ -3,7 +3,7 @@ from aqt.qt import QAction
 from anki.notes import Note
 from anki.cards import Card
 
-from cardscheduler import process_collection
+from .cardscheduler import process_collection
 
 # Create a new menu item in the Tools menu
 action = QAction("Compute Card Order", mw)

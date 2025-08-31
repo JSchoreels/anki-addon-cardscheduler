@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 
-from cardscheduler import load_kanji_readings, get_kanji_reading_pairs
+from cardscheduler import load_kanji_dictionnary_readings, get_kanji_reading_pairs
 from pathlib import Path
 
 # Load kanji readings from the XML file
 xml_file = Path(__file__).parent / 'cardscheduler' / 'kanjidic2_light.xml'
-kanji_readings = load_kanji_readings(str(xml_file))
+kanji_readings = load_kanji_dictionnary_readings(str(xml_file))
 
 # Test the specific failing cases
 test_cases = [
