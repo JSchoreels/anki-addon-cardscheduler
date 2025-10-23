@@ -157,30 +157,6 @@ def fuzzy_reading_match(kanjidic_reading, actual_reading):
             if actual_reading.startswith(sokuon_version):
                 return (sokuon_version, kanjidic_reading)
 
-    # Single character rendaku transformations
-    if len(kanjidic_reading) == len(actual_reading) and len(kanjidic_reading) > 0:
-        first_kanjidic = kanjidic_reading[0]
-        first_actual = actual_reading[0]
-        rest_matches = kanjidic_reading[1:] == actual_reading[1:]
-
-        # Basic rendaku pairs (avoiding duplicates)
-        single_char_rendaku = {
-            'か': 'が', 'き': 'ぎ', 'く': 'ぐ', 'け': 'げ', 'こ': 'ご',
-            'さ': 'ざ', 'し': 'じ', 'す': 'ず', 'せ': 'ぜ', 'そ': 'ぞ',
-            'た': 'だ', 'ち': 'ぢ', 'つ': 'づ', 'て': 'で', 'と': 'ど',
-            'は': 'ば', 'ひ': 'び', 'ふ': 'ぶ', 'へ': 'べ', 'ほ': 'ぼ',
-        }
-
-        # Check h→p transformations separately
-        h_to_p_single = {
-            'は': 'ぱ', 'ひ': 'ぴ', 'ふ': 'ぷ', 'へ': 'ぺ', 'ほ': 'ぽ',
-        }
-
-        # f→p transformations
-        f_to_p_rendaku = {
-            'ふぁ': 'ぱ', 'ふぃ': 'ぴ', 'ふぇ': 'ぺ', 'ふぉ': 'ぽ',
-        }
-
     return None
 
 def load_kanji_dictionnary_readings():
@@ -356,7 +332,7 @@ def compute_scores(cards):
 
     kanji_reading_to_cards = get_kanji_reading_to_matching_card(cards, kanji_readings)
 
-    update_kanji_reading_to_cards_with_average_interval(kanji_reading_to_cards)
+    update_kanji_reading_to_cards_with_average_interval(kanji_reading_to_cards, kanji_readings)
 
     print_kanji_readings_with_average_interval(kanji_reading_to_cards)
 
@@ -371,7 +347,8 @@ def compute_scores(cards):
             for pair in kanji_reading_pairs
             if pair in kanji_reading_to_cards
         ]
-        card_info.score = sum(intervals) / len(intervals) if intervals else 0
+        # card_info.score = sum(intervals) / len(intervals) if intervals else 0
+        card_info.score = min(intervals) if intervals else 0
         card_info.unknown_kanji_readings = intervals.count(0.0)
 
 
@@ -383,11 +360,12 @@ def print_kanji_readings_with_average_interval(kanji_reading_to_cards):
             f"Pair '{pair}': average_interval={info.average_interval:.2f}, matched_cards_count={len(info.matched_cards)}")
 
 
-def update_kanji_reading_to_cards_with_average_interval(kanji_reading_to_cards):
+def update_kanji_reading_to_cards_with_average_interval(kanji_reading_to_cards, kanji_readings):
     # Calculate average intervals for each kanji-reading pair
+
     for pair, info in kanji_reading_to_cards.items():
-        info.average_interval = statistics.fmean(
-            [card.interval for card in info.matched_cards if card.interval > 0]
+        info.average_interval = max(
+            [card.interval / 2**len(get_kanji_reading_pairs(card.furigana_text, kanji_readings)) for card in info.matched_cards if card.interval > 0]
             or [0.0]
         )
 
@@ -411,16 +389,14 @@ def process_collection(collection=None, dry_run=False):
     else:
         collection = collection
 
-    """Process the entire collection: extract cards, compute scores, and update fields."""
     cards = load_cards(collection)
 
-    # Compute scores
     compute_scores(cards)
 
     print("Cards sorted by familiarity score (least known first):")
     print("=" * 60)
 
-    update_only_new_cards = True
+    update_only_new_cards = False
     if update_only_new_cards:
         new_cids = collection.find_cards('"deck:Japan::1. Vocabulary" is:new')
         card_id_filter = lambda card_id: card_id in new_cids
@@ -434,7 +410,6 @@ def process_collection(collection=None, dry_run=False):
     print(f"Total cards processed: {len([card for card in cards if card_id_filter(card.card_id)])}")
     print(f"MyPosition field updated for {update_count} cards")
 
-    # Show a message to the user
     try:
         showInfo(f"Updated MyPosition field for {update_count} cards")
     except Exception as e:

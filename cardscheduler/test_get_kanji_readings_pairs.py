@@ -24,6 +24,12 @@ class TestKanjiReadingPairs(unittest.TestCase):
     def setUp(cls):
         cls.kanji_readings = load_kanji_dictionnary_readings()
 
+    def test_yubiwa(self):
+        text = '指輪[ゆびわ]'
+        pairs = get_kanji_reading_pairs(text, self.kanji_readings)
+        print(f"Actual pairs for {text}: {pairs}")
+        self.assertSetEqual(pairs, {'指[ゆび]', '輪[わ]'})
+
     def test_jogakkou(self):
         text = '女学校[じょがっこう]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
