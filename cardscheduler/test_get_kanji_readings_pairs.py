@@ -30,6 +30,12 @@ class TestKanjiReadingPairs(unittest.TestCase):
         print(f"Actual pairs for {text}: {pairs}")
         self.assertSetEqual(pairs, {'指[ゆび]', '輪[わ]'})
 
+    def test_ikiru(self):
+        text = '生[い]きる'
+        pairs = get_kanji_reading_pairs(text, self.kanji_readings)
+        print(f"Actual pairs for {text}: {pairs}")
+        self.assertSetEqual(pairs, {'生[い.きる]'})
+
     def test_jogakkou(self):
         text = '女学校[じょがっこう]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
