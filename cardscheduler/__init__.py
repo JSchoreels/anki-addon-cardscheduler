@@ -1,4 +1,5 @@
 import statistics
+from collections import defaultdict
 
 from aqt import mw
 from aqt.utils import showInfo
@@ -88,6 +89,7 @@ def split_reading_with_positions(kanji_word, reading, kanji_readings):
     # Fallback to original position-based matching
     pairs = []
     reading_index = 0
+    last_extended_reading_matched = ""
 
     for i, (pos, kanji) in enumerate(zip(kanji_positions, kanji_chars)):
         if i == 0:
@@ -98,7 +100,7 @@ def split_reading_with_positions(kanji_word, reading, kanji_readings):
             prev_kanji_pos = kanji_positions[i-1]
             kana_between = pos - prev_kanji_pos - 1
             if kana_between > 0:
-                if last_extended_reading_matched[1:] == kanji_word[prev_kanji_pos+1:prev_kanji_pos+1+len(last_extended_reading_matched[1:])]:
+                if  last_extended_reading_matched[1:] == kanji_word[prev_kanji_pos+1:prev_kanji_pos+1+len(last_extended_reading_matched[1:])]:
                     kana_between -= len(last_extended_reading_matched[1:])
                 # for i_kana_matched in range(1, len(last_extended_reading_matched)):
                 #     if last_extended_reading_matched[i_kana_matched] == kanji_word[prev_kanji_pos + i_kana_matched]:
@@ -342,15 +344,24 @@ def compute_scores(cards):
             card_info.score = 0
             continue
         kanji_reading_pairs = get_kanji_reading_pairs(card_info.furigana_text, kanji_readings)
-        intervals = [
-            kanji_reading_to_cards[pair].max_weighted_interval
-            for pair in kanji_reading_pairs
-            if pair in kanji_reading_to_cards
-        ]
-        # card_info.score = sum(intervals) / len(intervals) if intervals else 0
-        card_info.score = min(intervals) if intervals else 0
-        card_info.unknown_kanji_readings = intervals.count(0.0)
 
+        # Group by kanji, collect intervals for each reading
+        kanji_to_intervals = defaultdict(list)
+        for pair in kanji_reading_pairs:
+            if pair in kanji_reading_to_cards:
+                kanji = pair.split('[')[0]  # Extract kanji from '当[あ.たる]'
+                interval = kanji_reading_to_cards[pair].max_weighted_interval
+                kanji_to_intervals[kanji].append(interval)
+
+        # Take max interval for each kanji, then min across all kanji
+        max_intervals_per_kanji = [
+            max(intervals) for intervals in kanji_to_intervals.values()
+        ]
+
+        card_info.score = min(max_intervals_per_kanji) if max_intervals_per_kanji else 0
+        card_info.unknown_kanji_readings = sum(
+            1 for intervals in kanji_to_intervals.values() if max(intervals) == 0.0
+        )
 
 def print_kanji_readings_with_average_interval(kanji_reading_to_cards):
     # Debug: Show global kanji-reading averages
@@ -364,10 +375,15 @@ def update_kanji_reading_to_cards_with_max_weighted_interval(kanji_reading_to_ca
     # Calculate average intervals for each kanji-reading pair
 
     for pair, info in kanji_reading_to_cards.items():
-        info.max_weighted_interval = max(
-            [card.stability / 2 ** (len(get_kanji_reading_pairs(card.furigana_text, kanji_readings)) - 1) for card in info.matched_cards if card.stability > 0]
-            or [0.0]
-        )
+        weighted_intervals = []
+        for card in info.matched_cards:
+            if card.stability > 0:
+                pairs = get_kanji_reading_pairs(card.furigana_text, kanji_readings)
+                unique_kanji_count = len(set(p.split('[')[0] for p in pairs))
+                weighted_interval = card.stability / 2 ** (unique_kanji_count - 1)
+                weighted_intervals.append(weighted_interval)
+
+        info.max_weighted_interval = max(weighted_intervals) if weighted_intervals else 0.0
 
 
 def get_kanji_reading_to_matching_card(cards, kanji_readings):
@@ -433,7 +449,7 @@ def print_scores(cards, filter=lambda card: True):
     sorted_cards = sorted(cards, key=lambda c: c.score, reverse=False)
     for card in sorted_cards:
         if filter(card.card_id):
-            print(f"Score: {card.score:8.1f} | ID: {card.furigana_text:24s} | Unknown readings: {card.unknown_kanji_readings} | Stability : {card.stability:.1f} (Delta Score : {card.score / card.stability * 100 if card.stability > 0 else 0:.1f}%)")
+            print(f"Score: {card.score:8.1f} | ID: {card.furigana_text:24s} | Unknown readings: {card.unknown_kanji_readings} | Stability : {card.stability:.1f} (Score/Stability : {card.score / card.stability * 100 if card.stability > 0 else 0:.1f}%)")
 
 
 def update_cards_score(cards_score, collection, score_field="MyPosition", filter=lambda card: True, dry_run=False):
