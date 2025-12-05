@@ -315,17 +315,19 @@ class CardInfo:
         self.stability = stability
         self.score = 0  # Initialize score
         self.unknown_kanji_readings = 0
+        self.unlock_potential = 0  # Max unlock potential of any unknown kanji/reading pair in this card
 
     def __repr__(self):
-        return f"CardInfo(id={self.card_id}, furigana='{self.furigana_text}', interval={self.stability}, score={self.score}, unknowns={self.unknown_kanji_readings})"
+        return f"CardInfo(id={self.card_id}, furigana='{self.furigana_text}', interval={self.stability}, score={self.score}, unknowns={self.unknown_kanji_readings}, unlock={self.unlock_potential})"
 
 class KanjiReadingInfo:
     def __init__(self):
         self.matched_cards = set()
         self.average_interval = 0.0
+        self.unlock_potential = 0  # Number of cards that would get score > 0 if this pair was learned
 
     def __repr__(self):
-        return f"KanjiReadingInfo(average_interval={self.average_interval}, matched_cards_count={len(self.matched_cards)})"
+        return f"KanjiReadingInfo(average_interval={self.average_interval}, matched_cards_count={len(self.matched_cards)}, unlock_potential={self.unlock_potential})"
 
 def compute_scores(cards):
     """Compute familiarity scores for a list of CardInfo objects."""
@@ -363,6 +365,27 @@ def compute_scores(cards):
             1 for intervals in kanji_to_intervals.values() if max(intervals) == 0.0
         )
 
+    # Step 3: Compute unlock potential for each kanji/reading pair
+    compute_unlock_potential(kanji_reading_to_cards, kanji_readings, cards)
+
+    # Step 4: Update each card's unlock potential (max of all its unknown pairs)
+    for card_info in cards:
+        if not card_info.furigana_text or card_info.score > 0:
+            card_info.unlock_potential = 0
+            continue
+
+        kanji_reading_pairs = get_kanji_reading_pairs(card_info.furigana_text, kanji_readings)
+        max_unlock = 0
+
+        for pair in kanji_reading_pairs:
+            if pair in kanji_reading_to_cards:
+                pair_info = kanji_reading_to_cards[pair]
+                # Only consider pairs that are unknown (interval = 0)
+                if pair_info.max_weighted_interval == 0:
+                    max_unlock = max(max_unlock, pair_info.unlock_potential)
+
+        card_info.unlock_potential = max_unlock
+
 def print_kanji_readings_with_average_interval(kanji_reading_to_cards):
     # Debug: Show global kanji-reading averages
     print("Global kanji-reading averages:")
@@ -397,6 +420,53 @@ def get_kanji_reading_to_matching_card(cards, kanji_readings):
                 kanji_reading_to_cards[pair] = KanjiReadingInfo()
             kanji_reading_to_cards[pair].matched_cards.add(card_info)
     return kanji_reading_to_cards
+
+
+def compute_unlock_potential(kanji_reading_to_cards, kanji_readings, cards):
+    """
+    For each kanji/reading pair, compute how many cards would get score > 0
+    if that pair was learned (simulated with high interval value).
+    """
+    SIMULATED_LEARNED_INTERVAL = 100.0  # High interval to simulate "learned" state
+
+    # For each kanji/reading pair with interval 0
+    for pair, pair_info in kanji_reading_to_cards.items():
+        if pair_info.max_weighted_interval > 0:
+            # Already learned, no unlock potential
+            pair_info.unlock_potential = 0
+            continue
+
+        unlock_count = 0
+
+        # Check each card containing this pair
+        for card in pair_info.matched_cards:
+            # Only consider cards with current score <= 0
+            if card.score > 0:
+                continue
+
+            # Simulate learning this pair and recalculate card score
+            kanji_reading_pairs = get_kanji_reading_pairs(card.furigana_text, kanji_readings)
+
+            # Group by kanji, collect intervals for each reading
+            kanji_to_intervals = defaultdict(list)
+            for p in kanji_reading_pairs:
+                if p in kanji_reading_to_cards:
+                    kanji = p.split('[')[0]
+                    # Use simulated interval if this is the pair we're testing
+                    interval = SIMULATED_LEARNED_INTERVAL if p == pair else kanji_reading_to_cards[p].max_weighted_interval
+                    kanji_to_intervals[kanji].append(interval)
+
+            # Calculate new score with simulated learning
+            max_intervals_per_kanji = [
+                max(intervals) for intervals in kanji_to_intervals.values()
+            ]
+            new_score = min(max_intervals_per_kanji) if max_intervals_per_kanji else 0
+
+            # Count if this card would be unlocked
+            if new_score > 0:
+                unlock_count += 1
+
+        pair_info.unlock_potential = unlock_count
 
 
 def process_collection(collection=None, dry_run=False):
@@ -446,10 +516,13 @@ def load_cards(collection, furigana_plain_field="ID"):
 
 def print_scores(cards, filter=lambda card: True):
     # Sort cards by score in ascending order (lowest scores first - least familiar)
-    sorted_cards = sorted(cards, key=lambda c: c.score, reverse=False)
+    sorted_cards = sorted(cards, key=lambda c: (c.score, c.unlock_potential), reverse=False)
     for card in sorted_cards:
         if filter(card.card_id):
-            print(f"Score: {card.score:8.1f} | ID: {card.furigana_text:24s} | Unknown readings: {card.unknown_kanji_readings} | Stability : {card.stability:.1f} (Score/Stability : {card.score / card.stability * 100 if card.stability > 0 else 0:.1f}%)")
+            if card.score > 0:
+                print(f"Score: {card.score:8.1f} | ID: {card.furigana_text:24s} | Unknown readings: {card.unknown_kanji_readings} | Unlock: {card.unlock_potential:3d} | Stability : {card.stability:.1f} (Score/Stability : {card.score / card.stability * 100 if card.stability > 0 else 0:.1f}%)")
+            else:
+                print(f"Score: {card.score:8.1f} | ID: {card.furigana_text:24s} | Unknown readings: {card.unknown_kanji_readings} | Unlock: {card.unlock_potential:3d}")
 
 
 def update_cards_score(cards_score, collection, score_field="MyPosition", filter=lambda card: True, dry_run=False):
