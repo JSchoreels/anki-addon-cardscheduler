@@ -7,6 +7,11 @@ import re
 import xml.etree.ElementTree as ET
 import os
 
+# Configuration: Customizable field names
+FIELD_NAME_POSITION = "CardScheduler.Position"
+FIELD_NAME_SCORE = "CardScheduler.Score"
+FIELD_NAME_UNLOCK_POTENTIAL = "CardScheduler.UnlockPotential"
+
 
 def get_field_value(note, field_name):
     # Find the index of the field by its name
@@ -316,9 +321,10 @@ class CardInfo:
         self.score = 0  # Initialize score
         self.unknown_kanji_readings = 0
         self.unlock_potential = 0  # Max unlock potential of any unknown kanji/reading pair in this card
+        self.position = 0  # Learning order position (1 = highest priority)
 
     def __repr__(self):
-        return f"CardInfo(id={self.card_id}, furigana='{self.furigana_text}', interval={self.stability}, score={self.score}, unknowns={self.unknown_kanji_readings}, unlock={self.unlock_potential})"
+        return f"CardInfo(id={self.card_id}, furigana='{self.furigana_text}', interval={self.stability}, score={self.score}, unknowns={self.unknown_kanji_readings}, unlock={self.unlock_potential}, pos={self.position})"
 
 class KanjiReadingInfo:
     def __init__(self):
@@ -385,6 +391,14 @@ def compute_scores(cards):
                     max_unlock = max(max_unlock, pair_info.unlock_potential)
 
         card_info.unlock_potential = max_unlock
+
+    # Step 5: Calculate learning order positions
+    # Sort by score (descending), then by unlock_potential (descending)
+    # Position 1 = highest score (most familiar) = learn first
+    # For cards with same score, higher unlock potential = higher priority
+    sorted_cards = sorted(cards, key=lambda c: (-c.score, -c.unlock_potential))
+    for position, card in enumerate(sorted_cards, start=1):
+        card.position = position
 
 def print_kanji_readings_with_average_interval(kanji_reading_to_cards):
     # Debug: Show global kanji-reading averages
@@ -494,12 +508,18 @@ def process_collection(collection=None, dry_run=False):
 
     print("=" * 60)
     print(f"Total cards processed: {len([card for card in cards if card_id_filter(card.card_id)])}")
-    print(f"MyPosition field updated for {update_count} cards")
+    print(f"Card fields updated for {update_count} cards")
+    print(f"  - {FIELD_NAME_POSITION}: Learning order position")
+    print(f"  - {FIELD_NAME_SCORE}: Familiarity score")
+    print(f"  - {FIELD_NAME_UNLOCK_POTENTIAL}: Unlock potential")
 
     try:
-        showInfo(f"Updated MyPosition field for {update_count} cards")
+        showInfo(f"Updated card fields for {update_count} cards:\n"
+                f"  - {FIELD_NAME_POSITION}\n"
+                f"  - {FIELD_NAME_SCORE}\n"
+                f"  - {FIELD_NAME_UNLOCK_POTENTIAL}")
     except Exception as e:
-        print(f"Updated MyPosition field for {update_count} cards")
+        print(f"Updated card fields for {update_count} cards")
 
 
 def load_cards(collection, furigana_plain_field="ID"):
@@ -515,45 +535,98 @@ def load_cards(collection, furigana_plain_field="ID"):
 
 
 def print_scores(cards, filter=lambda card: True):
-    # Sort cards by score in ascending order (lowest scores first - least familiar)
-    sorted_cards = sorted(cards, key=lambda c: (c.score, c.unlock_potential), reverse=False)
+    # Sort cards by position (learning order)
+    sorted_cards = sorted(cards, key=lambda c: c.position)
     for card in sorted_cards:
         if filter(card.card_id):
             if card.score > 0:
-                print(f"Score: {card.score:8.1f} | ID: {card.furigana_text:24s} | Unknown readings: {card.unknown_kanji_readings} | Unlock: {card.unlock_potential:3d} | Stability : {card.stability:.1f} (Score/Stability : {card.score / card.stability * 100 if card.stability > 0 else 0:.1f}%)")
+                print(f"Pos: {card.position:5d} | Score: {card.score:8.1f} | ID: {card.furigana_text:24s} | Unknown: {card.unknown_kanji_readings} | Unlock: {card.unlock_potential:3d} | Stability: {card.stability:.1f} (Score/Stability: {card.score / card.stability * 100 if card.stability > 0 else 0:.1f}%)")
             else:
-                print(f"Score: {card.score:8.1f} | ID: {card.furigana_text:24s} | Unknown readings: {card.unknown_kanji_readings} | Unlock: {card.unlock_potential:3d}")
+                print(f"Pos: {card.position:5d} | Score: {card.score:8.1f} | ID: {card.furigana_text:24s} | Unknown: {card.unknown_kanji_readings} | Unlock: {card.unlock_potential:3d}")
 
 
-def update_cards_score(cards_score, collection, score_field="MyPosition", filter=lambda card: True, dry_run=False):
+def update_cards_score(cards_score, collection,
+                       position_field=FIELD_NAME_POSITION,
+                       score_field=FIELD_NAME_SCORE,
+                       unlock_potential_field=FIELD_NAME_UNLOCK_POTENTIAL,
+                       filter=lambda card: True, dry_run=False):
+    """Update card fields with position, score, and unlock potential."""
     update_count = 0
-    for card_id, score in [(card.card_id, card.score) for card in cards_score]:
-        if filter(card_id):
+    for card in cards_score:
+        if filter(card.card_id):
             if dry_run:
-                #print(f"Dry run: would update card ID {card_id} with score {score:.1f}")
                 update_count += 1
-            elif update_card_score(card_id, score, collection, score_field=score_field):
+            elif update_card_fields(card, collection,
+                                   position_field=position_field,
+                                   score_field=score_field,
+                                   unlock_potential_field=unlock_potential_field):
                 update_count += 1
     return update_count
 
 
+def update_card_fields(card_info, collection,
+                       position_field=FIELD_NAME_POSITION,
+                       score_field=FIELD_NAME_SCORE,
+                       unlock_potential_field=FIELD_NAME_UNLOCK_POTENTIAL):
+    """Update card note with position, score, and unlock potential fields."""
+    card = collection.get_card(card_info.card_id)
+    note = card.note()
+    note_type = note.note_type()
+
+    # Build a map of field names to indices
+    field_indices = {}
+    for i, fld in enumerate(note_type['flds']):
+        field_indices[fld['name']] = i
+
+    # Track if any field was updated
+    updated = False
+
+    # Update position field
+    if position_field in field_indices:
+        note.fields[field_indices[position_field]] = str(card_info.position)
+        updated = True
+    else:
+        print(f"Warning: Field '{position_field}' not found in note type: {note_type['name']}")
+
+    # Update score field
+    if score_field in field_indices:
+        note.fields[field_indices[score_field]] = str(round(card_info.score, 1))
+        updated = True
+    else:
+        print(f"Warning: Field '{score_field}' not found in note type: {note_type['name']}")
+
+    # Update unlock potential field
+    if unlock_potential_field in field_indices:
+        note.fields[field_indices[unlock_potential_field]] = str(card_info.unlock_potential)
+        updated = True
+    else:
+        print(f"Warning: Field '{unlock_potential_field}' not found in note type: {note_type['name']}")
+
+    if updated:
+        collection.update_note(note)
+        return True
+    else:
+        return False
+
+
 def update_card_score(card_id, score, collection, score_field="MyPosition"):
+    """Legacy function - kept for backwards compatibility."""
     card = collection.get_card(card_id)
     note = card.note()
     note_type = note.note_type()
 
-    # Find the MyPosition field index
-    my_position_field_index = None
+    # Find the field index
+    field_index = None
     for i, fld in enumerate(note_type['flds']):
         if fld['name'] == score_field:
-            my_position_field_index = i
+            field_index = i
             break
 
-    if my_position_field_index is not None:
+    if field_index is not None:
         # Update the field with the score (rounded to 1 decimal place)
-        note.fields[my_position_field_index] = str(round(score, 1))
-        collection.update_note(note)  # Use the modern API instead of flush()
+        note.fields[field_index] = str(round(score, 1))
+        collection.update_note(note)
         return True
     else:
-        print(f"MyPosition field not found in note type: {note_type['name']}")
+        print(f"Field '{score_field}' not found in note type: {note_type['name']}")
         return False
