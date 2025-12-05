@@ -392,12 +392,24 @@ def compute_scores(cards):
 
         card_info.unlock_potential = max_unlock
 
-    # Step 5: Calculate learning order positions
-    # Sort by score (descending), then by unlock_potential (descending)
+
+def assign_positions_to_new_cards(cards, new_card_ids):
+    """
+    Assign learning order positions only to new cards.
+
+    Args:
+        cards: List of all CardInfo objects with scores computed
+        new_card_ids: Set of card IDs that are in 'new' state
+    """
+    # Filter only new cards
+    new_cards = [c for c in cards if c.card_id in new_card_ids]
+
+    # Sort new cards by score (descending), then by unlock_potential (descending)
     # Position 1 = highest score (most familiar) = learn first
-    # For cards with same score, higher unlock potential = higher priority
-    sorted_cards = sorted(cards, key=lambda c: (-c.score, -c.unlock_potential))
-    for position, card in enumerate(sorted_cards, start=1):
+    sorted_new_cards = sorted(new_cards, key=lambda c: (-c.score, -c.unlock_potential))
+
+    # Assign positions only to new cards
+    for position, card in enumerate(sorted_new_cards, start=1):
         card.position = position
 
 def print_kanji_readings_with_average_interval(kanji_reading_to_cards):
@@ -483,7 +495,56 @@ def compute_unlock_potential(kanji_reading_to_cards, kanji_readings, cards):
         pair_info.unlock_potential = unlock_count
 
 
-def process_collection(collection=None, dry_run=False):
+def reposition_new_cards(cards, collection):
+    """
+    Reposition new cards based on their computed position field.
+
+    Only repositions cards that are in the 'new' state and have a position assigned.
+
+    Args:
+        cards: List of CardInfo objects with position field set (for new cards)
+        collection: Anki collection
+
+    Returns:
+        Number of cards repositioned
+    """
+    # Get all new cards in the deck
+    new_cids = set(collection.find_cards('"deck:Japan::1. Vocabulary" is:new'))
+
+    # Build a mapping of card_id to position for new cards that have positions
+    reposition_map = {}
+    for card in cards:
+        if card.card_id in new_cids and card.position > 0:
+            reposition_map[card.card_id] = card.position
+
+    if not reposition_map:
+        return 0
+
+    # Sort cards by their computed position
+    sorted_card_ids = sorted(reposition_map.keys(), key=lambda cid: reposition_map[cid])
+
+    # Reposition using Anki's scheduler
+    # The due value for new cards represents their queue position
+    # Modern Anki API (v2.1.50+)
+    collection.sched.reposition_new_cards(
+        card_ids=sorted_card_ids,
+        starting_from=1,
+        step_size=1,
+        randomize=False,
+        shift_existing=True
+    )
+    return len(sorted_card_ids)
+
+
+def process_collection(collection=None, dry_run=False, reposition=False):
+    """
+    Process cards to compute scores, unlock potential, and positions.
+
+    Args:
+        collection: Anki collection (defaults to mw.col)
+        dry_run: If True, don't actually update cards
+        reposition: If True, also reposition new cards based on computed positions
+    """
     if not collection:
         collection = mw.col
     else:
@@ -491,33 +552,47 @@ def process_collection(collection=None, dry_run=False):
 
     cards = load_cards(collection)
 
+    # Compute scores for ALL cards
     compute_scores(cards)
 
-    print("Cards sorted by familiarity score (least known first):")
+    # Get new card IDs for position assignment
+    new_cids = set(collection.find_cards('"deck:Japan::1. Vocabulary" is:new'))
+
+    # Assign positions only to new cards
+    assign_positions_to_new_cards(cards, new_cids)
+
+    print("Cards sorted by learning order position:")
     print("=" * 60)
 
-    update_only_new_cards = False
-    if update_only_new_cards:
-        new_cids = collection.find_cards('"deck:Japan::1. Vocabulary" is:new')
-        card_id_filter = lambda card_id: card_id in new_cids
-    else:
-        card_id_filter = lambda card_id: True
+    # Show all cards in output
+    print_scores(cards, new_card_ids=new_cids)
 
-    print_scores(cards, filter=card_id_filter)
-    update_count = update_cards_score(cards, collection, filter=card_id_filter, dry_run=dry_run)
+    # Update fields for ALL cards (score/unlock for all, position only for new)
+    update_count = update_cards_score(cards, collection, new_card_ids=new_cids, dry_run=dry_run)
 
     print("=" * 60)
-    print(f"Total cards processed: {len([card for card in cards if card_id_filter(card.card_id)])}")
+    print(f"Total cards processed: {len(cards)}")
+    print(f"  - New cards: {len(new_cids)}")
+    print(f"  - Non-new cards: {len(cards) - len(new_cids)}")
     print(f"Card fields updated for {update_count} cards")
-    print(f"  - {FIELD_NAME_POSITION}: Learning order position")
-    print(f"  - {FIELD_NAME_SCORE}: Familiarity score")
-    print(f"  - {FIELD_NAME_UNLOCK_POTENTIAL}: Unlock potential")
+    print(f"  - {FIELD_NAME_SCORE}: Familiarity score (all cards)")
+    print(f"  - {FIELD_NAME_UNLOCK_POTENTIAL}: Unlock potential (all cards)")
+    print(f"  - {FIELD_NAME_POSITION}: Learning order position (new cards only)")
+
+    # Reposition cards if requested (only new cards)
+    reposition_count = 0
+    if reposition and not dry_run:
+        reposition_count = reposition_new_cards(cards, collection)
+        print(f"\nRepositioned {reposition_count} new cards based on computed positions")
 
     try:
-        showInfo(f"Updated card fields for {update_count} cards:\n"
-                f"  - {FIELD_NAME_POSITION}\n"
-                f"  - {FIELD_NAME_SCORE}\n"
-                f"  - {FIELD_NAME_UNLOCK_POTENTIAL}")
+        message = f"Updated card fields for {update_count} cards:\n"
+        message += f"  - {FIELD_NAME_SCORE} (all cards)\n"
+        message += f"  - {FIELD_NAME_UNLOCK_POTENTIAL} (all cards)\n"
+        message += f"  - {FIELD_NAME_POSITION} ({len(new_cids)} new cards only)"
+        if reposition and reposition_count > 0:
+            message += f"\n\nRepositioned {reposition_count} new cards"
+        showInfo(message)
     except Exception as e:
         print(f"Updated card fields for {update_count} cards")
 
@@ -534,41 +609,88 @@ def load_cards(collection, furigana_plain_field="ID"):
     return cards
 
 
-def print_scores(cards, filter=lambda card: True):
-    # Sort cards by position (learning order)
-    sorted_cards = sorted(cards, key=lambda c: c.position)
-    for card in sorted_cards:
-        if filter(card.card_id):
+def print_scores(cards, new_card_ids=None):
+    """
+    Print card scores. Only new cards have positions assigned.
+
+    Args:
+        cards: List of CardInfo objects
+        new_card_ids: Set of card IDs that are new (have positions)
+    """
+    # Sort cards: new cards by position, non-new cards by score
+    new_cards = [c for c in cards if new_card_ids and c.card_id in new_card_ids]
+    non_new_cards = [c for c in cards if not new_card_ids or c.card_id not in new_card_ids]
+
+    # Sort new cards by position
+    sorted_new_cards = sorted(new_cards, key=lambda c: c.position)
+
+    # Sort non-new cards by score (descending)
+    sorted_non_new_cards = sorted(non_new_cards, key=lambda c: -c.score)
+
+    # Print new cards first
+    for card in sorted_new_cards:
+        if card.score > 0:
+            print(f"Pos: {card.position:5d} | Score: {card.score:8.1f} | ID: {card.furigana_text:24s} | Unknown: {card.unknown_kanji_readings} | Unlock: {card.unlock_potential:3d} | Stability: {card.stability:.1f} (Score/Stability: {card.score / card.stability * 100 if card.stability > 0 else 0:.1f}%)")
+        else:
+            print(f"Pos: {card.position:5d} | Score: {card.score:8.1f} | ID: {card.furigana_text:24s} | Unknown: {card.unknown_kanji_readings} | Unlock: {card.unlock_potential:3d}")
+
+    # Print non-new cards (no position)
+    if sorted_non_new_cards:
+        print("\nNon-new cards (no position assigned):")
+        for card in sorted_non_new_cards[:20]:  # Limit to first 20 for brevity
             if card.score > 0:
-                print(f"Pos: {card.position:5d} | Score: {card.score:8.1f} | ID: {card.furigana_text:24s} | Unknown: {card.unknown_kanji_readings} | Unlock: {card.unlock_potential:3d} | Stability: {card.stability:.1f} (Score/Stability: {card.score / card.stability * 100 if card.stability > 0 else 0:.1f}%)")
+                print(f"Pos: {'N/A':>5s} | Score: {card.score:8.1f} | ID: {card.furigana_text:24s} | Unknown: {card.unknown_kanji_readings} | Unlock: {card.unlock_potential:3d} | Stability: {card.stability:.1f}")
             else:
-                print(f"Pos: {card.position:5d} | Score: {card.score:8.1f} | ID: {card.furigana_text:24s} | Unknown: {card.unknown_kanji_readings} | Unlock: {card.unlock_potential:3d}")
+                print(f"Pos: {'N/A':>5s} | Score: {card.score:8.1f} | ID: {card.furigana_text:24s} | Unknown: {card.unknown_kanji_readings} | Unlock: {card.unlock_potential:3d}")
 
 
 def update_cards_score(cards_score, collection,
                        position_field=FIELD_NAME_POSITION,
                        score_field=FIELD_NAME_SCORE,
                        unlock_potential_field=FIELD_NAME_UNLOCK_POTENTIAL,
-                       filter=lambda card: True, dry_run=False):
-    """Update card fields with position, score, and unlock potential."""
+                       new_card_ids=None, dry_run=False):
+    """
+    Update card fields with position, score, and unlock potential.
+
+    Args:
+        cards_score: List of CardInfo objects
+        collection: Anki collection
+        position_field: Name of position field
+        score_field: Name of score field
+        unlock_potential_field: Name of unlock potential field
+        new_card_ids: Set of card IDs that are new (only these get position updated)
+        dry_run: If True, don't actually update
+    """
     update_count = 0
     for card in cards_score:
-        if filter(card.card_id):
-            if dry_run:
-                update_count += 1
-            elif update_card_fields(card, collection,
-                                   position_field=position_field,
-                                   score_field=score_field,
-                                   unlock_potential_field=unlock_potential_field):
-                update_count += 1
+        is_new = new_card_ids and card.card_id in new_card_ids
+        if dry_run:
+            update_count += 1
+        elif update_card_fields(card, collection,
+                               position_field=position_field,
+                               score_field=score_field,
+                               unlock_potential_field=unlock_potential_field,
+                               update_position=is_new):
+            update_count += 1
     return update_count
 
 
 def update_card_fields(card_info, collection,
                        position_field=FIELD_NAME_POSITION,
                        score_field=FIELD_NAME_SCORE,
-                       unlock_potential_field=FIELD_NAME_UNLOCK_POTENTIAL):
-    """Update card note with position, score, and unlock potential fields."""
+                       unlock_potential_field=FIELD_NAME_UNLOCK_POTENTIAL,
+                       update_position=True):
+    """
+    Update card note with position, score, and unlock potential fields.
+
+    Args:
+        card_info: CardInfo object
+        collection: Anki collection
+        position_field: Name of position field
+        score_field: Name of score field
+        unlock_potential_field: Name of unlock potential field
+        update_position: If True, update position field; if False, clear position field
+    """
     card = collection.get_card(card_info.card_id)
     note = card.note()
     note_type = note.note_type()
@@ -581,21 +703,26 @@ def update_card_fields(card_info, collection,
     # Track if any field was updated
     updated = False
 
-    # Update position field
+    # Update position field (only for new cards) or clear it (for non-new cards)
     if position_field in field_indices:
-        note.fields[field_indices[position_field]] = str(card_info.position)
+        if update_position:
+            note.fields[field_indices[position_field]] = str(card_info.position)
+        else:
+            # Clear position field for non-new cards
+            note.fields[field_indices[position_field]] = ""
         updated = True
     else:
-        print(f"Warning: Field '{position_field}' not found in note type: {note_type['name']}")
+        if update_position:
+            print(f"Warning: Field '{position_field}' not found in note type: {note_type['name']}")
 
-    # Update score field
+    # Update score field (for all cards)
     if score_field in field_indices:
         note.fields[field_indices[score_field]] = str(round(card_info.score, 1))
         updated = True
     else:
         print(f"Warning: Field '{score_field}' not found in note type: {note_type['name']}")
 
-    # Update unlock potential field
+    # Update unlock potential field (for all cards)
     if unlock_potential_field in field_indices:
         note.fields[field_indices[unlock_potential_field]] = str(card_info.unlock_potential)
         updated = True
