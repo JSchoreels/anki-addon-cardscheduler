@@ -60,7 +60,9 @@ Field "Reading": あたまがいたい
 Both modes produce the same result:
 
 1. **Single-field mode:** Directly uses the field value as-is
-2. **Two-field mode:** Combines the fields into format `Kanji[Reading]` before processing
+2. **Two-field mode:** Combines the fields intelligently:
+   - If kanji field contains kanji: `Kanji[Reading]`
+   - If kanji field has no kanji (pure hiragana/katakana): just `Text` (no brackets)
 
 Both formats are then processed by `get_kanji_reading_pairs()` which:
 - Extracts individual kanji-reading pairs using the Kanjidic dictionary
@@ -107,9 +109,13 @@ To switch modes:
 ### Two Field Examples
 
 ```
-Kanji: 学校        Reading: がっこう        → 学[がく], 校[こう]
-Kanji: 頭が痛い    Reading: あたまがいたい   → 頭[あたま], 痛[いた.む], 痛[いた.い]
-Kanji: 大会        Reading: たいかい        → 大[たい], 会[かい]
+Kanji: 学校        Reading: がっこう        → 学校[がっこう] → 学[がく], 校[こう]
+Kanji: 頭が痛い    Reading: あたまがいたい   → 頭が痛い[あたまがいたい] → 頭[あたま], 痛[いた.む], 痛[いた.い]
+Kanji: 大会        Reading: たいかい        → 大会[たいかい] → 大[たい], 会[かい]
+Kanji: もの        Reading: もの            → もの (no brackets) → (no kanji pairs extracted)
+Kanji: は          Reading: は              → は (no brackets) → (no kanji pairs extracted)
 ```
 
 Both produce identical kanji-reading pairs for scoring!
+
+**Note**: Pure hiragana/katakana words (no kanji) are handled identically in both modes - no brackets are added, and no kanji pairs are extracted, resulting in score = 0.

@@ -54,12 +54,20 @@ def convert_two_fields_to_furigana(kanji_text, reading_text):
 
     Returns:
         Text in furigana format (e.g., "頭が痛い[あたまがいたい]")
+        If kanji_text has no kanji, returns just the kanji_text without brackets
     """
     if not kanji_text or not reading_text:
         return kanji_text or ""
 
-    # Simply append the reading in brackets at the end
-    return f"{kanji_text}[{reading_text}]"
+    # Check if kanji_text contains any kanji characters
+    has_kanji = any('\u4e00' <= c <= '\u9fff' for c in kanji_text)
+
+    if not has_kanji:
+        # No kanji in the text, just return the text without brackets
+        return kanji_text
+    else:
+        # Has kanji, append the reading in brackets
+        return f"{kanji_text}[{reading_text}]"
 
 
 def get_kanji_reading_pairs(text, kanji_readings):

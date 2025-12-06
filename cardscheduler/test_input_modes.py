@@ -21,9 +21,21 @@ class TestInputModes(unittest.TestCase):
 
     def test_convert_two_fields_to_furigana(self):
         """Test converting two fields to furigana format."""
-        # Test basic conversion
+        # Test basic conversion with kanji
         result = convert_two_fields_to_furigana('頭が痛い', 'あたまがいたい')
         self.assertEqual(result, '頭が痛い[あたまがいたい]')
+
+        # Test with no kanji (pure hiragana) - should NOT add brackets
+        result = convert_two_fields_to_furigana('もの', 'もの')
+        self.assertEqual(result, 'もの')
+
+        # Test with no kanji (pure hiragana, different text)
+        result = convert_two_fields_to_furigana('は', 'は')
+        self.assertEqual(result, 'は')
+
+        # Test with katakana only - should NOT add brackets
+        result = convert_two_fields_to_furigana('カタカナ', 'カタカナ')
+        self.assertEqual(result, 'カタカナ')
 
         # Test with empty reading
         result = convert_two_fields_to_furigana('頭が痛い', '')
