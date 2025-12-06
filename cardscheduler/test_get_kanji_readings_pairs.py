@@ -204,8 +204,14 @@ class TestKanjiReadingPairs(unittest.TestCase):
         print(f"Actual pairs for {text}: {pairs}")
         self.assertSetEqual(pairs, {'声[ごえ]', '泣[な.く]'})
 
-    def test_atamagaitai(self):
+    def test_atamagaitai_one_field(self):
         text = '頭[あたま]が 痛[いた]い'
+        pairs = get_kanji_reading_pairs(text, self.kanji_readings)
+        print(f"Actual pairs for {text}: {pairs}")
+        self.assertSetEqual(pairs, {'痛[いた.む]', '頭[あたま]', '痛[いた.い]'})
+
+    def test_atamagaitai_two_fields(self):
+        text = '頭が痛い[あたまがいたい]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
         self.assertSetEqual(pairs, {'痛[いた.む]', '頭[あたま]', '痛[いた.い]'})

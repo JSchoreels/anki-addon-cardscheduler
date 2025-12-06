@@ -12,6 +12,19 @@ FIELD_NAME_POSITION = "CardScheduler.Position"
 FIELD_NAME_SCORE = "CardScheduler.Score"
 FIELD_NAME_UNLOCK_POTENTIAL = "CardScheduler.UnlockPotential"
 
+# Configuration: Input field format
+# Mode 1: Single field containing kanji with furigana (e.g., "頭[あたま]が 痛[いた]い")
+INPUT_MODE_SINGLE_FIELD = "single"
+INPUT_FIELD_SINGLE = "ID"  # Field name for single-field mode
+
+# Mode 2: Two fields - one with kanji, one with reading (e.g., "頭が痛い" + "あたまがいたい")
+INPUT_MODE_TWO_FIELDS = "two"
+INPUT_FIELD_KANJI = "Kanji"  # Field name for kanji
+INPUT_FIELD_READING = "Reading"  # Field name for reading
+
+# Active mode: Set to INPUT_MODE_SINGLE_FIELD or INPUT_MODE_TWO_FIELDS
+INPUT_MODE = INPUT_MODE_SINGLE_FIELD
+
 
 def get_field_value(note, field_name):
     # Find the index of the field by its name
@@ -30,6 +43,24 @@ def get_kanji_set(text):
 def extract_kanji_only(text):
     """Extract only kanji characters from text, filtering out kana."""
     return re.findall(r'[\u4e00-\u9fff]', text)
+
+def convert_two_fields_to_furigana(kanji_text, reading_text):
+    """
+    Convert two-field format (separate kanji and reading) to single-field furigana format.
+
+    Args:
+        kanji_text: Text with kanji (e.g., "頭が痛い")
+        reading_text: Full reading (e.g., "あたまがいたい")
+
+    Returns:
+        Text in furigana format (e.g., "頭が痛い[あたまがいたい]")
+    """
+    if not kanji_text or not reading_text:
+        return kanji_text or ""
+
+    # Simply append the reading in brackets at the end
+    return f"{kanji_text}[{reading_text}]"
+
 
 def get_kanji_reading_pairs(text, kanji_readings):
     """Extract kanji-reading pairs using Kanjidic, falling back to kanji-only."""
@@ -597,15 +628,42 @@ def process_collection(collection=None, dry_run=False, reposition=False):
         print(f"Updated card fields for {update_count} cards")
 
 
-def load_cards(collection, furigana_plain_field="ID"):
+def load_cards(collection,
+               input_mode=INPUT_MODE,
+               single_field_name=INPUT_FIELD_SINGLE,
+               kanji_field_name=INPUT_FIELD_KANJI,
+               reading_field_name=INPUT_FIELD_READING):
+    """
+    Load cards from collection and extract furigana text.
+
+    Args:
+        collection: Anki collection
+        input_mode: Either INPUT_MODE_SINGLE_FIELD or INPUT_MODE_TWO_FIELDS
+        single_field_name: Field name for single-field mode
+        kanji_field_name: Field name for kanji in two-field mode
+        reading_field_name: Field name for reading in two-field mode
+
+    Returns:
+        List of CardInfo objects
+    """
     # Extract card information
     all_cids = collection.find_cards('"deck:Japan::1. Vocabulary"')
     cards = []
     for cid in all_cids:
         card = collection.get_card(cid)
         note = card.note()
-        field_value = get_field_value(note, furigana_plain_field)
-        cards.append(CardInfo(card.id, field_value, card.memory_state.stability if card.memory_state else 0))
+
+        # Get furigana text based on input mode
+        if input_mode == INPUT_MODE_SINGLE_FIELD:
+            furigana_text = get_field_value(note, single_field_name)
+        elif input_mode == INPUT_MODE_TWO_FIELDS:
+            kanji_text = get_field_value(note, kanji_field_name)
+            reading_text = get_field_value(note, reading_field_name)
+            furigana_text = convert_two_fields_to_furigana(kanji_text, reading_text)
+        else:
+            furigana_text = ""
+
+        cards.append(CardInfo(card.id, furigana_text, card.memory_state.stability if card.memory_state else 0))
     return cards
 
 
