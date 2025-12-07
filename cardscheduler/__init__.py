@@ -11,6 +11,9 @@ import os
 FIELD_NAME_POSITION = "CardScheduler.Position"
 FIELD_NAME_SCORE = "CardScheduler.Score"
 FIELD_NAME_UNLOCK_POTENTIAL = "CardScheduler.UnlockPotential"
+FIELD_NAME_UNLOCK_MEDIAN_SCORE_INCREASE = "CardScheduler.UnlockMedianScoreIncrease"  # Median score increase for unlocked cards
+FIELD_NAME_SCORE_WITHOUT_MISSING = "CardScheduler.ScoreWithoutMissing"  # Score if missing kanji were known
+FIELD_NAME_MISSING_KANJI_COUNT = "CardScheduler.MissingKanjiCount"  # Number of unknown kanji/readings
 
 # Configuration: Input field format
 # Mode 1: Single field containing kanji with furigana (e.g., "頭[あたま]が 痛[いた]い")
@@ -360,16 +363,20 @@ class CardInfo:
         self.score = 0  # Initialize score
         self.unknown_kanji_readings = 0
         self.unlock_potential = 0  # Max unlock potential of any unknown kanji/reading pair in this card
+        self.unlock_median_score_increase = 0  # Median score increase for cards this would unlock
+        self.score_without_missing = 0  # Score this card would have if missing kanji were known
+        self.missing_kanji_count = 0  # Number of unknown kanji/readings in this card
         self.position = 0  # Learning order position (1 = highest priority)
 
     def __repr__(self):
-        return f"CardInfo(id={self.card_id}, furigana='{self.furigana_text}', interval={self.stability}, score={self.score}, unknowns={self.unknown_kanji_readings}, unlock={self.unlock_potential}, pos={self.position})"
+        return f"CardInfo(id={self.card_id}, furigana='{self.furigana_text}', interval={self.stability}, score={self.score}, unknowns={self.unknown_kanji_readings}, unlock={self.unlock_potential}, median_increase={self.unlock_median_score_increase}, pos={self.position})"
 
 class KanjiReadingInfo:
     def __init__(self):
         self.matched_cards = set()
         self.average_interval = 0.0
         self.unlock_potential = 0  # Number of cards that would get score > 0 if this pair was learned
+        self.unlock_median_score_increase = 0  # Median score increase for unlocked cards
 
     def __repr__(self):
         return f"KanjiReadingInfo(average_interval={self.average_interval}, matched_cards_count={len(self.matched_cards)}, unlock_potential={self.unlock_potential})"
@@ -413,28 +420,100 @@ def compute_scores(cards):
     # Step 3: Compute unlock potential for each kanji/reading pair
     compute_unlock_potential(kanji_reading_to_cards, kanji_readings, cards)
 
-    # Step 4: Update each card's unlock potential (max of all its unknown pairs)
+    # Step 4: Update each card's unlock potential, median score increase, score without missing, and missing count
     for card_info in cards:
-        if not card_info.furigana_text or card_info.score > 0:
+        if not card_info.furigana_text:
             card_info.unlock_potential = 0
+            card_info.unlock_median_score_increase = 0
+            card_info.score_without_missing = 0
+            card_info.missing_kanji_count = 0
             continue
 
         kanji_reading_pairs = get_kanji_reading_pairs(card_info.furigana_text, kanji_readings)
+
+        if card_info.score > 0:
+            # Card already has positive score - no missing kanji
+            card_info.unlock_potential = 0
+            card_info.unlock_median_score_increase = 0
+            card_info.score_without_missing = card_info.score
+            card_info.missing_kanji_count = 0
+            continue
+
+        # Group by kanji, collect intervals for each reading
+        kanji_to_intervals = defaultdict(list)
+        for pair in kanji_reading_pairs:
+            if pair in kanji_reading_to_cards:
+                kanji = pair.split('[')[0]
+                interval = kanji_reading_to_cards[pair].max_weighted_interval
+                kanji_to_intervals[kanji].append(interval)
+
+        # Calculate score without missing kanji (min of only known kanji)
+        known_kanji_scores = []
+        missing_kanji_count = 0
+        for kanji, intervals in kanji_to_intervals.items():
+            max_interval = max(intervals)
+            if max_interval > 0:
+                known_kanji_scores.append(max_interval)
+            else:
+                missing_kanji_count += 1
+
+        card_info.score_without_missing = min(known_kanji_scores) if known_kanji_scores else 0
+        card_info.missing_kanji_count = missing_kanji_count
+
+        # Find the unknown pair with max unlock potential and its median score increase
         max_unlock = 0
+        max_median_increase = 0
 
         for pair in kanji_reading_pairs:
             if pair in kanji_reading_to_cards:
                 pair_info = kanji_reading_to_cards[pair]
                 # Only consider pairs that are unknown (interval = 0)
                 if pair_info.max_weighted_interval == 0:
-                    max_unlock = max(max_unlock, pair_info.unlock_potential)
+                    if pair_info.unlock_potential > max_unlock:
+                        max_unlock = pair_info.unlock_potential
+                        max_median_increase = pair_info.unlock_median_score_increase
+                    elif pair_info.unlock_potential == max_unlock:
+                        # If same unlock potential, take the higher median score increase
+                        max_median_increase = max(max_median_increase, pair_info.unlock_median_score_increase)
 
         card_info.unlock_potential = max_unlock
+        card_info.unlock_median_score_increase = max_median_increase
+
+
+def count_kanji_in_text(text):
+    """Count the number of kanji characters in text (excluding furigana)."""
+    # Extract text without furigana brackets
+    import re
+    text_no_furigana = re.sub(r'\[.*?\]', '', text)
+    kanji_count = sum(1 for char in text_no_furigana if '\u4e00' <= char <= '\u9fff')
+    return kanji_count
+
+
+def count_kana_in_text(text):
+    """Count the number of kana characters (hiragana + katakana) in text (excluding furigana)."""
+    import re
+    text_no_furigana = re.sub(r'\[.*?\]', '', text)
+    kana_count = sum(1 for char in text_no_furigana
+                     if ('\u3040' <= char <= '\u309f') or  # Hiragana
+                        ('\u30a0' <= char <= '\u30ff'))    # Katakana
+    return kana_count
 
 
 def assign_positions_to_new_cards(cards, new_card_ids):
     """
     Assign learning order positions only to new cards.
+
+    Sorting priority:
+    1. Score (descending) - higher score = more familiar = learn first
+    2. Unlock potential (descending) - more cards would be fully unlocked by learning this
+    3. Unlock median score increase (descending) - unlocked cards would have higher scores
+    4. Missing kanji count (ascending) - fewer missing kanji
+    5. Kanji count (ascending) - fewer kanji = simpler word
+    6. Kana count (ascending) - fewer kana = shorter word
+    7. Score without missing (ascending) - lower score = needs more help (final tiebreaker)
+
+    Note: unlock_potential counts only cards that would be FULLY unlocked (score > 0)
+    by learning this single kanji, not cards that still have other missing kanji.
 
     Args:
         cards: List of all CardInfo objects with scores computed
@@ -443,9 +522,17 @@ def assign_positions_to_new_cards(cards, new_card_ids):
     # Filter only new cards
     new_cards = [c for c in cards if c.card_id in new_card_ids]
 
-    # Sort new cards by score (descending), then by unlock_potential (descending)
-    # Position 1 = highest score (most familiar) = learn first
-    sorted_new_cards = sorted(new_cards, key=lambda c: (-c.score, -c.unlock_potential))
+    # Sort new cards with multi-level priority
+    # Position 1 = highest priority (best to learn first)
+    sorted_new_cards = sorted(new_cards, key=lambda c: (
+        -c.score,                              # 1. Higher score first (more familiar)
+        -c.unlock_potential,                   # 2. More cards fully unlocked
+        -c.unlock_median_score_increase,       # 3. Higher value unlocks
+        c.missing_kanji_count,                 # 4. Fewer missing kanji
+        count_kanji_in_text(c.furigana_text),  # 5. Fewer kanji (simpler)
+        count_kana_in_text(c.furigana_text),   # 6. Fewer kana (shorter)
+        c.score_without_missing                # 7. Lower score needs more help
+    ))
 
     # Assign positions only to new cards
     for position, card in enumerate(sorted_new_cards, start=1):
@@ -489,8 +576,12 @@ def get_kanji_reading_to_matching_card(cards, kanji_readings):
 
 def compute_unlock_potential(kanji_reading_to_cards, kanji_readings, cards):
     """
-    For each kanji/reading pair, compute how many cards would get score > 0
-    if that pair was learned (simulated with high interval value).
+    For each kanji/reading pair, compute:
+    1. How many cards would get score > 0 if that pair was learned (unlock_potential)
+    2. The median score increase for unlocked cards (unlock_median_score_increase)
+
+    The score increase is calculated as the "score without missing kanji" - the minimum
+    score across only the KNOWN kanji in the card (excluding unknown ones).
     """
     SIMULATED_LEARNED_INTERVAL = 100.0  # High interval to simulate "learned" state
 
@@ -499,9 +590,11 @@ def compute_unlock_potential(kanji_reading_to_cards, kanji_readings, cards):
         if pair_info.max_weighted_interval > 0:
             # Already learned, no unlock potential
             pair_info.unlock_potential = 0
+            pair_info.unlock_median_score_increase = 0
             continue
 
         unlock_count = 0
+        score_increases = []  # Track score increases for unlocked cards
 
         # Check each card containing this pair
         for card in pair_info.matched_cards:
@@ -509,7 +602,7 @@ def compute_unlock_potential(kanji_reading_to_cards, kanji_readings, cards):
             if card.score > 0:
                 continue
 
-            # Simulate learning this pair and recalculate card score
+            # Get all kanji/reading pairs for this card
             kanji_reading_pairs = get_kanji_reading_pairs(card.furigana_text, kanji_readings)
 
             # Group by kanji, collect intervals for each reading
@@ -517,21 +610,51 @@ def compute_unlock_potential(kanji_reading_to_cards, kanji_readings, cards):
             for p in kanji_reading_pairs:
                 if p in kanji_reading_to_cards:
                     kanji = p.split('[')[0]
+                    interval = kanji_reading_to_cards[p].max_weighted_interval
+                    kanji_to_intervals[kanji].append(interval)
+
+            # Calculate "score without missing" - minimum across only KNOWN kanji (interval > 0)
+            known_kanji_scores = []
+            for kanji, intervals in kanji_to_intervals.items():
+                max_interval = max(intervals)
+                if max_interval > 0:  # Only include known kanji
+                    known_kanji_scores.append(max_interval)
+
+            score_without_missing = min(known_kanji_scores) if known_kanji_scores else 0
+
+            # Now simulate learning this specific pair
+            kanji_to_intervals_simulated = defaultdict(list)
+            for p in kanji_reading_pairs:
+                if p in kanji_reading_to_cards:
+                    kanji = p.split('[')[0]
                     # Use simulated interval if this is the pair we're testing
                     interval = SIMULATED_LEARNED_INTERVAL if p == pair else kanji_reading_to_cards[p].max_weighted_interval
-                    kanji_to_intervals[kanji].append(interval)
+                    kanji_to_intervals_simulated[kanji].append(interval)
 
             # Calculate new score with simulated learning
             max_intervals_per_kanji = [
-                max(intervals) for intervals in kanji_to_intervals.values()
+                max(intervals) for intervals in kanji_to_intervals_simulated.values()
             ]
             new_score = min(max_intervals_per_kanji) if max_intervals_per_kanji else 0
 
             # Count if this card would be unlocked
             if new_score > 0:
                 unlock_count += 1
+                # The score increase is the score without missing kanji
+                score_increases.append(score_without_missing)
 
         pair_info.unlock_potential = unlock_count
+
+        # Calculate median score increase
+        if score_increases:
+            score_increases.sort()
+            n = len(score_increases)
+            if n % 2 == 0:
+                pair_info.unlock_median_score_increase = (score_increases[n//2-1] + score_increases[n//2]) / 2
+            else:
+                pair_info.unlock_median_score_increase = score_increases[n//2]
+        else:
+            pair_info.unlock_median_score_increase = 0
 
 
 def reposition_new_cards(cards, collection):
@@ -616,6 +739,9 @@ def process_collection(collection=None, dry_run=False, reposition=False):
     print(f"Card fields updated for {update_count} cards")
     print(f"  - {FIELD_NAME_SCORE}: Familiarity score (all cards)")
     print(f"  - {FIELD_NAME_UNLOCK_POTENTIAL}: Unlock potential (all cards)")
+    print(f"  - {FIELD_NAME_UNLOCK_MEDIAN_SCORE_INCREASE}: Unlock median score increase (all cards)")
+    print(f"  - {FIELD_NAME_SCORE_WITHOUT_MISSING}: Score without missing kanji (all cards)")
+    print(f"  - {FIELD_NAME_MISSING_KANJI_COUNT}: Missing kanji count (all cards)")
     print(f"  - {FIELD_NAME_POSITION}: Learning order position (new cards only)")
 
     # Reposition cards if requested (only new cards)
@@ -628,6 +754,9 @@ def process_collection(collection=None, dry_run=False, reposition=False):
         message = f"Updated card fields for {update_count} cards:\n"
         message += f"  - {FIELD_NAME_SCORE} (all cards)\n"
         message += f"  - {FIELD_NAME_UNLOCK_POTENTIAL} (all cards)\n"
+        message += f"  - {FIELD_NAME_UNLOCK_MEDIAN_SCORE_INCREASE} (all cards)\n"
+        message += f"  - {FIELD_NAME_SCORE_WITHOUT_MISSING} (all cards)\n"
+        message += f"  - {FIELD_NAME_MISSING_KANJI_COUNT} (all cards)\n"
         message += f"  - {FIELD_NAME_POSITION} ({len(new_cids)} new cards only)"
         if reposition and reposition_count > 0:
             message += f"\n\nRepositioned {reposition_count} new cards"
@@ -688,17 +817,10 @@ def print_scores(cards, new_card_ids=None):
     non_new_cards = [c for c in cards if not new_card_ids or c.card_id not in new_card_ids]
 
     # Sort new cards by position
-    sorted_new_cards = sorted(new_cards, key=lambda c: c.position)
+    sorted_new_cards = sorted(new_cards, key=lambda c: -c.position)
 
     # Sort non-new cards by score (descending)
     sorted_non_new_cards = sorted(non_new_cards, key=lambda c: -c.score)
-
-    # Print new cards first
-    for card in sorted_new_cards:
-        if card.score > 0:
-            print(f"Pos: {card.position:5d} | Score: {card.score:8.1f} | ID: {card.furigana_text:24s} | Unknown: {card.unknown_kanji_readings} | Unlock: {card.unlock_potential:3d} | Stability: {card.stability:.1f} (Score/Stability: {card.score / card.stability * 100 if card.stability > 0 else 0:.1f}%)")
-        else:
-            print(f"Pos: {card.position:5d} | Score: {card.score:8.1f} | ID: {card.furigana_text:24s} | Unknown: {card.unknown_kanji_readings} | Unlock: {card.unlock_potential:3d}")
 
     # Print non-new cards (no position)
     if sorted_non_new_cards:
@@ -708,6 +830,18 @@ def print_scores(cards, new_card_ids=None):
                 print(f"Pos: {'N/A':>5s} | Score: {card.score:8.1f} | ID: {card.furigana_text:24s} | Unknown: {card.unknown_kanji_readings} | Unlock: {card.unlock_potential:3d} | Stability: {card.stability:.1f}")
             else:
                 print(f"Pos: {'N/A':>5s} | Score: {card.score:8.1f} | ID: {card.furigana_text:24s} | Unknown: {card.unknown_kanji_readings} | Unlock: {card.unlock_potential:3d}")
+
+
+    # Print new cards
+    for card in sorted_new_cards:
+        if card.score > 0:
+            print(f"Pos: {card.position:5d} | Score: {card.score:8.1f} | ID: {card.furigana_text:24s}")
+        else:
+            print(f"Pos: {card.position:5d} | Score: {card.score:8.1f} | ID: {card.furigana_text:24s} | "
+                  f"Unknown: {card.unknown_kanji_readings} | Unlock: {card.unlock_potential:3d} | "
+                  f"UnlockMedian: {card.unlock_median_score_increase:6.1f} | "
+                  f"ScoreNoMissing: {card.score_without_missing:6.1f} | Missing: {card.missing_kanji_count}")
+
 
 
 def update_cards_score(cards_score, collection,
@@ -745,9 +879,12 @@ def update_card_fields(card_info, collection,
                        position_field=FIELD_NAME_POSITION,
                        score_field=FIELD_NAME_SCORE,
                        unlock_potential_field=FIELD_NAME_UNLOCK_POTENTIAL,
+                       unlock_median_score_increase_field=FIELD_NAME_UNLOCK_MEDIAN_SCORE_INCREASE,
+                       score_without_missing_field=FIELD_NAME_SCORE_WITHOUT_MISSING,
+                       missing_kanji_count_field=FIELD_NAME_MISSING_KANJI_COUNT,
                        update_position=True):
     """
-    Update card note with position, score, and unlock potential fields.
+    Update card note with all computed fields.
 
     Args:
         card_info: CardInfo object
@@ -755,6 +892,9 @@ def update_card_fields(card_info, collection,
         position_field: Name of position field
         score_field: Name of score field
         unlock_potential_field: Name of unlock potential field
+        unlock_median_score_increase_field: Name of unlock median score increase field
+        score_without_missing_field: Name of score without missing field
+        missing_kanji_count_field: Name of missing kanji count field
         update_position: If True, update position field; if False, clear position field
     """
     card = collection.get_card(card_info.card_id)
@@ -794,6 +934,27 @@ def update_card_fields(card_info, collection,
         updated = True
     else:
         print(f"Warning: Field '{unlock_potential_field}' not found in note type: {note_type['name']}")
+
+    # Update unlock median score increase field (for all cards)
+    if unlock_median_score_increase_field in field_indices:
+        note.fields[field_indices[unlock_median_score_increase_field]] = str(round(card_info.unlock_median_score_increase, 1))
+        updated = True
+    else:
+        print(f"Warning: Field '{unlock_median_score_increase_field}' not found in note type: {note_type['name']}")
+
+    # Update score without missing field (for all cards)
+    if score_without_missing_field in field_indices:
+        note.fields[field_indices[score_without_missing_field]] = str(round(card_info.score_without_missing, 1))
+        updated = True
+    else:
+        print(f"Warning: Field '{score_without_missing_field}' not found in note type: {note_type['name']}")
+
+    # Update missing kanji count field (for all cards)
+    if missing_kanji_count_field in field_indices:
+        note.fields[field_indices[missing_kanji_count_field]] = str(card_info.missing_kanji_count)
+        updated = True
+    else:
+        print(f"Warning: Field '{missing_kanji_count_field}' not found in note type: {note_type['name']}")
 
     if updated:
         collection.update_note(note)
