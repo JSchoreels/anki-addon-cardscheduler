@@ -246,6 +246,31 @@ class TestKanjiReadingPairs(unittest.TestCase):
         print(f"Actual pairs for {text}: {pairs}")
         self.assertSetEqual(pairs, {'前[まえ]', '当[あ.たり]', '当[あ.たる]'})
 
+    def test_kago(self):
+        text = 'といっても過言ではない[といってもかごんではない]'
+        pairs = get_kanji_reading_pairs(text, self.kanji_readings)
+        print(f"Actual pairs for {text}: {pairs}")
+        self.assertSetEqual(pairs, {'過[]', '言[]'})
+
+    def test_onsha(self):
+        text = '御社[おんしゃ]'
+        pairs = get_kanji_reading_pairs(text, self.kanji_readings)
+        print(f"Actual pairs for {text}: {pairs}")
+        self.assertSetEqual(pairs, {'社[しゃ]', '御[お]', '御[おん]'})
+
+    def test_budoushu(self):
+        text = 'ブドウ酒[ブドウしゅ]'
+        pairs = get_kanji_reading_pairs(text, self.kanji_readings)
+        print(f"Actual pairs for {text}: {pairs}")
+        self.assertSetEqual(pairs, {'酒[]'})
+
+    def test_shitsuren(self):
+        text = '失恋[しつれん]'
+        pairs = get_kanji_reading_pairs(text, self.kanji_readings)
+        print(f"Actual pairs for {text}: {pairs}")
+        self.assertSetEqual(pairs, {'失[しつ]', '恋[れん]'})
+
+
     def test_csv_analysis_and_output(self):
         """Analyze all CSV entries and write kanji pairs to file."""
         # Load CSV data

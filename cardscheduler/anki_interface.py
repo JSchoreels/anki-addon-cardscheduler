@@ -29,6 +29,8 @@ from .config import (
     FIELD_NAME_UNLOCK_MEDIAN_SCORE_INCREASE,
     FIELD_NAME_SCORE_WITHOUT_MISSING,
     FIELD_NAME_MISSING_KANJI_COUNT,
+    FIELD_NAME_RELATED_KNOWN,
+    FIELD_NAME_RELATED_UNKNOWN,
     SIMULATE_ZERO_STABILITY,
     INPUT_MODE,
     INPUT_MODE_SINGLE_FIELD,
@@ -251,6 +253,8 @@ def update_card_fields(card_info, collection,
                        unlock_median_score_increase_field=FIELD_NAME_UNLOCK_MEDIAN_SCORE_INCREASE,
                        score_without_missing_field=FIELD_NAME_SCORE_WITHOUT_MISSING,
                        missing_kanji_count_field=FIELD_NAME_MISSING_KANJI_COUNT,
+                       related_known_field=FIELD_NAME_RELATED_KNOWN,
+                       related_unknown_field=FIELD_NAME_RELATED_UNKNOWN,
                        update_position=True,
                        available_fields=None):
     """
@@ -315,6 +319,16 @@ def update_card_fields(card_info, collection,
     # Update missing kanji count field (for all cards)
     if missing_kanji_count_field in available_fields and missing_kanji_count_field in field_indices:
         note.fields[field_indices[missing_kanji_count_field]] = str(card_info.missing_kanji_count)
+        updated = True
+
+    # Update related known words field (for all cards)
+    if related_known_field in available_fields and related_known_field in field_indices:
+        note.fields[field_indices[related_known_field]] = ",　 ".join(card_info.related_words_known)
+        updated = True
+
+    # Update related unknown words field (for all cards)
+    if related_unknown_field in available_fields and related_unknown_field in field_indices:
+        note.fields[field_indices[related_unknown_field]] = ",　 ".join(card_info.related_words_unknown)
         updated = True
 
     if updated:
@@ -430,7 +444,9 @@ def process_collection(collection=None, dry_run=False, reposition=False):
         FIELD_NAME_UNLOCK_POTENTIAL,
         FIELD_NAME_UNLOCK_MEDIAN_SCORE_INCREASE,
         FIELD_NAME_SCORE_WITHOUT_MISSING,
-        FIELD_NAME_MISSING_KANJI_COUNT
+        FIELD_NAME_MISSING_KANJI_COUNT,
+        FIELD_NAME_RELATED_KNOWN,
+        FIELD_NAME_RELATED_UNKNOWN
     ])
 
     # Update fields for ALL cards (score/unlock for all, position only for new)

@@ -29,6 +29,8 @@ class CardInfo:
         self.score_without_missing = 0  # Score this card would have if missing kanji were known
         self.missing_kanji_count = 0  # Number of unknown kanji/readings in this card
         self.position = 0  # Learning order position (1 = highest priority)
+        self.related_words_known = []  # Related words with stability > 0
+        self.related_words_unknown = []  # Related words with stability = 0
 
     def __repr__(self):
         return f"CardInfo(id={self.card_id}, furigana='{self.furigana_text}', interval={self.stability}, score={self.score}, unknowns={self.unknown_kanji_readings}, unlock={self.unlock_potential}, median_increase={self.unlock_median_score_increase}, pos={self.position})"
@@ -166,6 +168,29 @@ def compute_unlock_potential(kanji_reading_to_cards, kanji_readings, cards):
             pair_info.unlock_median_score_increase = 0
 
 
+def compute_related_words(cards, kanji_reading_to_cards, kanji_readings):
+    """Find all cards that share at least one kanji/reading pair, split by known/unknown."""
+    for card_info in cards:
+        if not card_info.furigana_text:
+            card_info.related_words_known = []
+            card_info.related_words_unknown = []
+            continue
+
+        kanji_reading_pairs = get_kanji_reading_pairs(card_info.furigana_text, kanji_readings)
+
+        related_cards_set = set()
+        for pair in kanji_reading_pairs:
+            if pair in kanji_reading_to_cards:
+                for related_card in kanji_reading_to_cards[pair].matched_cards:
+                    if related_card.card_id != card_info.card_id:
+                        related_cards_set.add(related_card)
+
+        related_cards_list = sorted(list(related_cards_set), key=lambda c: c.furigana_text)
+
+        card_info.related_words_known = [c.furigana_text for c in related_cards_list if c.stability > 0]
+        card_info.related_words_unknown = [c.furigana_text for c in related_cards_list if c.stability == 0]
+
+
 def compute_scores(cards):
     """Compute familiarity scores for a list of CardInfo objects."""
 
@@ -263,6 +288,9 @@ def compute_scores(cards):
 
         card_info.unlock_potential = max_unlock
         card_info.unlock_median_score_increase = max_median_increase
+
+    # Step 5: Compute related words for each card
+    compute_related_words(cards, kanji_reading_to_cards, kanji_readings)
 
 
 def assign_positions_to_new_cards(cards, new_card_ids):

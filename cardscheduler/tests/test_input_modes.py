@@ -107,6 +107,19 @@ class TestInputModes(unittest.TestCase):
         self.assertIn('学[がく]', pairs)
         self.assertIn('校[こう]', pairs)
 
+    def test_shitsuren(self):
+        kanji_text = '失恋'
+        reading_text = 'しつれん'
+
+        furigana_text = convert_two_fields_to_furigana(kanji_text, reading_text)
+        self.assertEqual(furigana_text, '失恋[しつれん]')
+
+        pairs = get_kanji_reading_pairs(furigana_text, self.kanji_readings)
+
+        # Should extract individual kanji readings
+        self.assertIn('失[しつ]', pairs)
+        self.assertIn('恋[れん]', pairs)
+
 
 if __name__ == "__main__":
     unittest.main()
