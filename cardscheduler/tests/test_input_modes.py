@@ -20,10 +20,10 @@ class TestInputModes(unittest.TestCase):
         self.kanji_readings = load_kanji_dictionnary_readings()
 
     def test_convert_two_fields_to_furigana(self):
-        """Test converting two fields to furigana format."""
-        # Test basic conversion with kanji
+        """Test converting two fields to furigana format with smart alignment."""
+        # Test basic conversion with kanji - now aligns kana and adds furigana only for kanji
         result = convert_two_fields_to_furigana('頭が痛い', 'あたまがいたい')
-        self.assertEqual(result, '頭が痛い[あたまがいたい]')
+        self.assertEqual(result, '頭[あたま]が 痛[いた]い')
 
         # Test with no kanji (pure hiragana) - should NOT add brackets
         result = convert_two_fields_to_furigana('もの', 'もの')

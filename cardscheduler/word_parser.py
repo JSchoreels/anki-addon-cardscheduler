@@ -35,30 +35,91 @@ def count_kana_in_text(text):
     return kana_count
 
 
+def is_kana(char):
+    """Check if character is hiragana or katakana."""
+    return ('\u3040' <= char <= '\u309f') or ('\u30a0' <= char <= '\u30ff')
+
+def is_kanji(char):
+    """Check if character is kanji."""
+    return '\u4e00' <= char <= '\u9fff'
+
 def convert_two_fields_to_furigana(kanji_text, reading_text):
     """
-    Convert two-field format (separate kanji and reading) to single-field furigana format.
+    Convert two-field format to furigana format, aligning kana and adding furigana only for kanji.
 
     Args:
-        kanji_text: Text with kanji (e.g., "頭が痛い")
-        reading_text: Full reading (e.g., "あたまがいたい")
+        kanji_text: Text with kanji (e.g., "とけ込む")
+        reading_text: Full reading (e.g., "とけこむ")
 
     Returns:
-        Text in furigana format (e.g., "頭が痛い[あたまがいたい]")
+        Text in furigana format (e.g., "とけ 込[こ]む")
         If kanji_text has no kanji, returns just the kanji_text without brackets
     """
     if not kanji_text or not reading_text:
         return kanji_text or ""
 
-    # Check if kanji_text contains any kanji characters
-    has_kanji = any('\u4e00' <= c <= '\u9fff' for c in kanji_text)
-
-    if not has_kanji:
-        # No kanji in the text, just return the text without brackets
+    if not any(is_kanji(c) for c in kanji_text):
         return kanji_text
-    else:
-        # Has kanji, append the reading in brackets
-        return f"{kanji_text}[{reading_text}]"
+
+    result = []
+    k_idx = 0
+    r_idx = 0
+
+    while k_idx < len(kanji_text):
+        if is_kana(kanji_text[k_idx]):
+            kana_segment = []
+            while k_idx < len(kanji_text) and is_kana(kanji_text[k_idx]):
+                kana_segment.append(kanji_text[k_idx])
+                k_idx += 1
+
+            kana_str = ''.join(kana_segment)
+            if r_idx < len(reading_text) and reading_text[r_idx:r_idx+len(kana_str)] == kana_str:
+                if result and not result[-1].endswith(']'):
+                    result.append(' ')
+                result.append(kana_str)
+                r_idx += len(kana_str)
+            else:
+                result.append(kanji_text[k_idx-len(kana_segment):k_idx])
+
+        elif is_kanji(kanji_text[k_idx]):
+            kanji_segment = []
+            while k_idx < len(kanji_text) and is_kanji(kanji_text[k_idx]):
+                kanji_segment.append(kanji_text[k_idx])
+                k_idx += 1
+
+            next_kana_in_kanji = []
+            temp_idx = k_idx
+            while temp_idx < len(kanji_text) and is_kana(kanji_text[temp_idx]):
+                next_kana_in_kanji.append(kanji_text[temp_idx])
+                temp_idx += 1
+
+            next_kana_str = ''.join(next_kana_in_kanji)
+
+            if next_kana_str:
+                next_kana_pos = reading_text.find(next_kana_str, r_idx + 1)
+                if next_kana_pos != -1:
+                    kanji_reading = reading_text[r_idx:next_kana_pos]
+                    r_idx = next_kana_pos + len(next_kana_str)
+                else:
+                    kanji_reading = reading_text[r_idx:-len(next_kana_str)] if len(reading_text) - r_idx > len(next_kana_str) else reading_text[r_idx:]
+                    r_idx = len(reading_text)
+            else:
+                kanji_reading = reading_text[r_idx:]
+                r_idx = len(reading_text)
+
+            kanji_str = ''.join(kanji_segment)
+            if result and not result[-1].endswith(' '):
+                result.append(' ')
+            result.append(f"{kanji_str}[{kanji_reading}]")
+
+            if next_kana_str:
+                result.append(next_kana_str)
+                k_idx = temp_idx
+        else:
+            result.append(kanji_text[k_idx])
+            k_idx += 1
+
+    return ''.join(result)
 
 
 def fuzzy_reading_match(kanjidic_reading, actual_reading):
