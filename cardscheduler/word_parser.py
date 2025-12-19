@@ -189,17 +189,39 @@ def split_reading_with_positions(kanji_word, reading, kanji_readings):
 
         remaining_reading = reading[reading_index:]
 
-        exact_match_found = False
+        # Track the best (longest) match
+        # Use the ACTUAL reading from the card, not the dictionary reading
+        best_actual_reading = None
+        best_match_length = 0
+        best_base_reading = None
+
         for (base_reading, extended_reading) in [(base_reading, extended_reading)
                                for base_reading in possible_readings
                                for extended_reading in possible_readings[base_reading]]:
 
             if remaining_reading.startswith(extended_reading):
-                pairs.append((kanji, base_reading))
-                if len(extended_reading) > max_new_pairs_size:
-                    max_new_pairs_size = len(extended_reading)
+                # Keep only the longest matching reading (greedy matching)
+                if len(extended_reading) > best_match_length:
+                    best_base_reading = base_reading
+                    best_match_length = len(extended_reading)
                     last_extended_reading_matched = extended_reading
-                exact_match_found = True
+
+        # Only append the best match (if found)
+        exact_match_found = False
+        if best_base_reading:
+            # Extract only the kanji reading part (before the dot in base_reading like "こ.める")
+            # The actual reading from the card, limited to the kanji part length
+            if '.' in best_base_reading:
+                kanji_reading_part = best_base_reading.split('.')[0]
+                actual_reading = remaining_reading[:len(kanji_reading_part)]
+            else:
+                # No okurigana, use the full match
+                actual_reading = remaining_reading[:best_match_length]
+
+            # Store as tuple: (kanji, actual_reading, base_reading)
+            pairs.append((kanji, actual_reading, best_base_reading))
+            max_new_pairs_size = best_match_length
+            exact_match_found = True
 
         # Try fuzzy matching with length restrictions
         if not exact_match_found:
@@ -224,7 +246,8 @@ def get_kanji_reading_pairs(text, kanji_readings):
         kanji_word = kanji_word + conjugation
         reading = reading + conjugation  # Combine reading and conjugation for full reading
         if len(kanji_word) == 1:
-            kanji_pairs.add(f"{kanji_word}[{reading}]")
+            # For single kanji, actual and base reading are the same
+            kanji_pairs.add(f"{kanji_word}[{reading}|{reading}]")
             processed_kanji.add(kanji_word)
         else:
             # Handle 々 (iteration mark) by expanding it to repeat the previous kanji
@@ -238,11 +261,17 @@ def get_kanji_reading_pairs(text, kanji_readings):
             if reading_parts:
                 # For repeated kanji (when 々 is used), only add unique kanji-reading pairs
                 unique_pairs = set()
-                for kanji, reading_part in reading_parts:
-                    unique_pairs.add((kanji, reading_part))
+                for item in reading_parts:
+                    if len(item) == 3:  # (kanji, actual_reading, base_reading)
+                        kanji, actual_reading, base_reading = item
+                        unique_pairs.add((kanji, actual_reading, base_reading))
+                    else:  # Old format fallback
+                        kanji, reading_part = item
+                        unique_pairs.add((kanji, reading_part, reading_part))
 
-                for kanji, reading_part in unique_pairs:
-                    kanji_pairs.add(f"{kanji}[{reading_part}]")
+                for kanji, actual_reading, base_reading in unique_pairs:
+                    # Store as "kanji[actual|base]" to preserve both readings
+                    kanji_pairs.add(f"{kanji}[{actual_reading}|{base_reading}]")
                     processed_kanji.add(kanji)
             else:
                 # If splitting fails, add individual kanji with empty readings

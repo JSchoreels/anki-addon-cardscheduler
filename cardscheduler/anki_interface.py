@@ -323,12 +323,12 @@ def update_card_fields(card_info, collection,
 
     # Update related known words field (for all cards)
     if related_known_field in available_fields and related_known_field in field_indices:
-        note.fields[field_indices[related_known_field]] = ",　 ".join(card_info.related_words_known)
+        note.fields[field_indices[related_known_field]] = card_info.related_words_known
         updated = True
 
     # Update related unknown words field (for all cards)
     if related_unknown_field in available_fields and related_unknown_field in field_indices:
-        note.fields[field_indices[related_unknown_field]] = ",　 ".join(card_info.related_words_unknown)
+        note.fields[field_indices[related_unknown_field]] = card_info.related_words_unknown
         updated = True
 
     if updated:
