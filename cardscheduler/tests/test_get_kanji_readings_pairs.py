@@ -112,7 +112,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '時々[ときどき]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'時[とき]', '時[どき]', '時[と]'})
+        self.assertSetEqual(pairs, {'時[とき]'})
 
     def test_happyoukai(self):
         text = '発表会[はっぴょうかい]'
@@ -154,7 +154,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '雨雲[あまぐも]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'雨[あま]', '雲[くも]', '雲[ぐも]'})
+        self.assertSetEqual(pairs, {'雨[あま]', '雲[くも]'})
 
     def test_tsutsumotase(self):
         text = '美人局[つつもたせ]'
@@ -232,7 +232,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '締[し]め 切[き]り'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'締[し.め]', '切[き.り]', '切[き.る]', '締[し.める]'})
+        self.assertSetEqual(pairs, {'締[し]', '切[き]'})
 
     def test_ataru(self):
         text = '当[あ]たる'
@@ -244,7 +244,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '当[あ]たり 前[まえ]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'前[まえ]', '当[あ.たり]', '当[あ.たる]'})
+        self.assertSetEqual(pairs, {'前[まえ]', '当[あ]'})
 
     def test_kago(self):
         text = 'といっても過言ではない[といってもかごんではない]'
@@ -270,6 +270,17 @@ class TestKanjiReadingPairs(unittest.TestCase):
         print(f"Actual pairs for {text}: {pairs}")
         self.assertSetEqual(pairs, {'失[しつ]', '恋[れん]'})
 
+    def test_katamaru(self):
+        text = '固まる[かたまる]'
+        pairs = get_kanji_reading_pairs(text, self.kanji_readings)
+        print(f"Actual pairs for {text}: {pairs}")
+        self.assertSetEqual(pairs, {''})
+
+    def test_katai(self):
+        text = '固い[かたい]'
+        pairs = get_kanji_reading_pairs(text, self.kanji_readings)
+        print(f"Actual pairs for {text}: {pairs}")
+        self.assertSetEqual(pairs, {''})
 
     def test_csv_analysis_and_output(self):
         """Analyze all CSV entries and write kanji pairs to file."""

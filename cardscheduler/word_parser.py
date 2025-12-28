@@ -153,6 +153,104 @@ def fuzzy_reading_match(kanjidic_reading, actual_reading):
     return None
 
 
+def is_rendaku_of(reading, base_reading):
+    """Check if reading is the rendaku form of base_reading."""
+    if not reading or not base_reading:
+        return False
+
+    # Rendaku mappings (inverse of the normal map)
+    rendaku_inverse = {
+        'が': 'か', 'ぎ': 'き', 'ぐ': 'く', 'げ': 'け', 'ご': 'こ',
+        'ざ': 'さ', 'じ': 'し', 'ず': 'す', 'ぜ': 'せ', 'ぞ': 'そ',
+        'だ': 'た', 'ぢ': 'ち', 'づ': 'つ', 'で': 'て', 'ど': 'と',
+        'ば': 'は', 'び': 'ひ', 'ぶ': 'ふ', 'べ': 'へ', 'ぼ': 'ほ',
+    }
+
+    first_char = reading[0]
+    if first_char in rendaku_inverse:
+        unvoiced = rendaku_inverse[first_char] + reading[1:]
+        return unvoiced == base_reading
+
+    return False
+
+
+def extract_actual_readings(kanji_word, reading, kanji_readings):
+    """Extract actual readings for each kanji from the furigana text.
+
+    For "当[あ]たり", returns [('当', 'あ')] - the actual reading, not dictionary base readings.
+    For "時々[ときどき]", returns [('時', 'とき'), ('時', 'とき')] - normalizes どき to とき.
+    Uses the dictionary to find valid matches but returns normalized base readings.
+    """
+    # Find positions of kanji in the word
+    kanji_positions = []
+    for i, char in enumerate(kanji_word):
+        if '\u4e00' <= char <= '\u9fff':
+            kanji_positions.append((i, char))
+
+    if not kanji_positions:
+        return []
+
+    pairs = []
+    reading_index = 0
+
+    for pos_idx, (kanji_pos, kanji) in enumerate(kanji_positions):
+        if kanji not in kanji_readings:
+            # Unknown kanji, skip
+            continue
+
+        possible_readings = kanji_readings[kanji]
+        remaining_reading = reading[reading_index:]
+
+        if not remaining_reading:
+            break
+
+        # Find the longest matching reading from the dictionary
+        best_match_extended = None
+        best_match_base = None
+        best_match_length = 0
+
+        for base_reading in possible_readings:
+            for extended_reading in possible_readings[base_reading]:
+                if remaining_reading.startswith(extended_reading):
+                    if len(extended_reading) > best_match_length:
+                        best_match_extended = extended_reading
+                        best_match_base = base_reading
+                        best_match_length = len(extended_reading)
+
+        if best_match_base:
+            # Extract the kanji reading part (without okurigana)
+            if '.' in best_match_base:
+                kanji_reading_part = best_match_base.split('.')[0]
+                actual_reading = remaining_reading[:len(kanji_reading_part)]
+            else:
+                # No okurigana, use the full reading
+                kanji_reading_part = best_match_base
+                actual_reading = remaining_reading[:len(best_match_base)]
+
+            # Normalize rendaku: convert voiced reading to unvoiced base form
+            # BUT only if the actual_reading is NOT a valid base reading itself
+            # Example: どき→とき (どき not in dictionary), but だい stays だい (だい is valid)
+            normalized_reading = actual_reading
+            if is_rendaku_of(actual_reading, kanji_reading_part):
+                # Check if actual_reading is a valid base reading
+                if actual_reading not in possible_readings:
+                    # It's not a base reading, so normalize to the base form
+                    normalized_reading = kanji_reading_part
+
+            pairs.append((kanji, normalized_reading))
+            reading_index += best_match_length
+        else:
+            # Try fuzzy matching
+            for base_reading in possible_readings:
+                if fuzzy := fuzzy_reading_match(base_reading, remaining_reading):
+                    matched_actual, matched_kanjidic = fuzzy
+                    pairs.append((kanji, matched_kanjidic))  # Use base form from dictionary
+                    reading_index += len(matched_actual)
+                    break
+
+    return pairs
+
+
 def split_reading_with_positions(kanji_word, reading, kanji_readings):
     """Split reading by mapping kanji positions to reading segments."""
     # Find positions of kanji in the original word
@@ -189,39 +287,18 @@ def split_reading_with_positions(kanji_word, reading, kanji_readings):
 
         remaining_reading = reading[reading_index:]
 
-        # Track the best (longest) match
-        # Use the ACTUAL reading from the card, not the dictionary reading
-        best_actual_reading = None
-        best_match_length = 0
-        best_base_reading = None
-
+        # Add ALL matching base readings (not just the longest)
+        exact_match_found = False
         for (base_reading, extended_reading) in [(base_reading, extended_reading)
                                for base_reading in possible_readings
                                for extended_reading in possible_readings[base_reading]]:
 
             if remaining_reading.startswith(extended_reading):
-                # Keep only the longest matching reading (greedy matching)
-                if len(extended_reading) > best_match_length:
-                    best_base_reading = base_reading
-                    best_match_length = len(extended_reading)
-                    last_extended_reading_matched = extended_reading
-
-        # Only append the best match (if found)
-        exact_match_found = False
-        if best_base_reading:
-            # Extract only the kanji reading part (before the dot in base_reading like "こ.める")
-            # The actual reading from the card, limited to the kanji part length
-            if '.' in best_base_reading:
-                kanji_reading_part = best_base_reading.split('.')[0]
-                actual_reading = remaining_reading[:len(kanji_reading_part)]
-            else:
-                # No okurigana, use the full match
-                actual_reading = remaining_reading[:best_match_length]
-
-            # Store as tuple: (kanji, actual_reading, base_reading)
-            pairs.append((kanji, actual_reading, best_base_reading))
-            max_new_pairs_size = best_match_length
-            exact_match_found = True
+                # Store the base reading
+                pairs.append((kanji, base_reading))
+                max_new_pairs_size = max(max_new_pairs_size, len(extended_reading))
+                last_extended_reading_matched = extended_reading
+                exact_match_found = True
 
         # Try fuzzy matching with length restrictions
         if not exact_match_found:
@@ -246,8 +323,8 @@ def get_kanji_reading_pairs(text, kanji_readings):
         kanji_word = kanji_word + conjugation
         reading = reading + conjugation  # Combine reading and conjugation for full reading
         if len(kanji_word) == 1:
-            # For single kanji, actual and base reading are the same
-            kanji_pairs.add(f"{kanji_word}[{reading}|{reading}]")
+            # For single kanji, use base reading only (original format)
+            kanji_pairs.add(f"{kanji_word}[{reading}]")
             processed_kanji.add(kanji_word)
         else:
             # Handle 々 (iteration mark) by expanding it to repeat the previous kanji
@@ -256,22 +333,17 @@ def get_kanji_reading_pairs(text, kanji_readings):
             # Extract only kanji characters from compound word (after expansion)
             kanji_chars = extract_kanji_only(expanded_kanji_word)
 
-            # For mixed kanji-kana words, use position-aware splitting
-            reading_parts = split_reading_with_positions(expanded_kanji_word, reading, kanji_readings)
+            # Extract actual readings from the furigana text (not dictionary readings)
+            reading_parts = extract_actual_readings(expanded_kanji_word, reading, kanji_readings)
             if reading_parts:
                 # For repeated kanji (when 々 is used), only add unique kanji-reading pairs
                 unique_pairs = set()
-                for item in reading_parts:
-                    if len(item) == 3:  # (kanji, actual_reading, base_reading)
-                        kanji, actual_reading, base_reading = item
-                        unique_pairs.add((kanji, actual_reading, base_reading))
-                    else:  # Old format fallback
-                        kanji, reading_part = item
-                        unique_pairs.add((kanji, reading_part, reading_part))
+                for kanji, actual_reading in reading_parts:
+                    unique_pairs.add((kanji, actual_reading))
 
-                for kanji, actual_reading, base_reading in unique_pairs:
-                    # Store as "kanji[actual|base]" to preserve both readings
-                    kanji_pairs.add(f"{kanji}[{actual_reading}|{base_reading}]")
+                for kanji, actual_reading in unique_pairs:
+                    # Use actual reading from the text
+                    kanji_pairs.add(f"{kanji}[{actual_reading}]")
                     processed_kanji.add(kanji)
             else:
                 # If splitting fails, add individual kanji with empty readings
