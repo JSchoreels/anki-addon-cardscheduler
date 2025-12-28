@@ -298,15 +298,21 @@ def compute_related_words(cards, kanji_reading_to_cards, kanji_readings):
         pairs = get_kanji_reading_pairs(card.furigana_text, kanji_readings)
         card_to_pairs[card.card_id] = pairs
 
-    # Step 2: Build index: kanji[reading] -> list of cards - O(N*K)
-    pair_to_cards = {}
+    # Step 2: Build index: kanji -> {reading: [cards]} - O(N*K)
+    kanji_to_reading_cards = {}
     for card in cards:
         for pair in card_to_pairs[card.card_id]:
-            if pair not in pair_to_cards:
-                pair_to_cards[pair] = []
-            pair_to_cards[pair].append(card)
+            # Extract kanji and reading from pair (e.g., "大[だい]" -> ("大", "だい"))
+            match = re.match(r'([^[]+)\[([^]]*)\]', pair)
+            if match:
+                kanji, reading = match.groups()
+                if kanji not in kanji_to_reading_cards:
+                    kanji_to_reading_cards[kanji] = {}
+                if reading not in kanji_to_reading_cards[kanji]:
+                    kanji_to_reading_cards[kanji][reading] = []
+                kanji_to_reading_cards[kanji][reading].append(card)
 
-    # Step 3: For each card, find related cards using index - O(N*K)
+    # Step 3: For each card, find related cards using index - O(N*K*R)
     for card_info in cards:
         if not card_info.furigana_text:
             card_info.related_words_known = ""
@@ -315,33 +321,42 @@ def compute_related_words(cards, kanji_reading_to_cards, kanji_readings):
 
         current_pairs = card_to_pairs[card_info.card_id]
 
+        # Get all kanji from this card
+        current_kanji = set()
+        for pair in current_pairs:
+            match = re.match(r'([^[]+)\[', pair)
+            if match:
+                current_kanji.add(match.group(1))
+
         # Create color mapping for this card's kanji
         kanji_to_color = {}
-        for i, pair in enumerate(current_pairs):
-            match = re.match(r'([一-龯]+)\[', pair)
-            if match:
-                kanji = match.group(1)
-                if kanji not in kanji_to_color:
-                    kanji_to_color[kanji] = HIGHLIGHT_COLORS[i % len(HIGHLIGHT_COLORS)]
+        for i, kanji in enumerate(current_kanji):
+            kanji_to_color[kanji] = HIGHLIGHT_COLORS[i % len(HIGHLIGHT_COLORS)]
 
-        # Track which kanji[reading] pairs we've seen and how many examples (limit to 5 per pair)
-        pair_counts_known = {}  # pair -> count
-        pair_counts_unknown = {}  # pair -> count
+        # Track reading counts per kanji: kanji -> {reading -> count}
+        kanji_reading_counts_known = {}
+        kanji_reading_counts_unknown = {}
 
         known_words = []
         unknown_words = []
 
-        # Collect all related cards that share any kanji[reading] pair (deduplicated)
-        related_cards_map = {}  # card_id -> (card, shared_pairs)
-        for pair in current_pairs:
-            if pair in pair_to_cards:
-                for related_card in pair_to_cards[pair]:
-                    if related_card.card_id != card_info.card_id:
-                        if related_card.card_id not in related_cards_map:
-                            # Find all shared pairs between current card and related card
-                            shared_pairs = current_pairs & card_to_pairs[related_card.card_id]
-                            if shared_pairs:
-                                related_cards_map[related_card.card_id] = (related_card, shared_pairs)
+        # Collect all related cards that share any kanji (any reading)
+        related_cards_map = {}  # card_id -> (card, shared_kanji)
+        for kanji in current_kanji:
+            if kanji in kanji_to_reading_cards:
+                # Get all cards with this kanji, regardless of reading
+                for reading, reading_cards in kanji_to_reading_cards[kanji].items():
+                    for related_card in reading_cards:
+                        if related_card.card_id != card_info.card_id:
+                            if related_card.card_id not in related_cards_map:
+                                # Find all shared kanji between current card and related card
+                                related_kanji = set()
+                                for related_pair in card_to_pairs[related_card.card_id]:
+                                    match = re.match(r'([^[]+)\[', related_pair)
+                                    if match and match.group(1) in current_kanji:
+                                        related_kanji.add(match.group(1))
+                                if related_kanji:
+                                    related_cards_map[related_card.card_id] = (related_card, related_kanji)
 
         related_cards_info = list(related_cards_map.values())
 
@@ -355,32 +370,53 @@ def compute_related_words(cards, kanji_reading_to_cards, kanji_readings):
 
         related_cards_info.sort(key=sort_key)
 
-        # Process cards and limit to 5 per kanji[reading] pair
-        for related_card, shared_pairs in related_cards_info:
-            # Determine the primary shared pair (first one)
-            primary_pair = next(iter(shared_pairs)) if shared_pairs else None
-
-            if not primary_pair:
+        # Process cards and limit to 5 per kanji-reading combination
+        for related_card, shared_kanji in related_cards_info:
+            if not shared_kanji:
                 continue
 
-            # Check if we should include this card based on the 5-per-pair limit
+            # Get the readings for each shared kanji in the related card
             is_known = related_card.stability > 0
-            pair_counts = pair_counts_known if is_known else pair_counts_unknown
+            kanji_reading_counts = kanji_reading_counts_known if is_known else kanji_reading_counts_unknown
 
-            if primary_pair not in pair_counts:
-                pair_counts[primary_pair] = 0
+            # Check if we can add this card (limit 5 per kanji-reading)
+            can_add = False
+            related_card_pairs = card_to_pairs[related_card.card_id]
 
-            if pair_counts[primary_pair] >= 5:
-                continue  # Skip this card, already have 5 examples for this pair
+            for kanji in shared_kanji:
+                # Find the reading of this kanji in the related card
+                for pair in related_card_pairs:
+                    match = re.match(r'([^[]+)\[([^]]*)\]', pair)
+                    if match:
+                        pair_kanji, pair_reading = match.groups()
+                        if pair_kanji == kanji:
+                            # Initialize tracking for this kanji if needed
+                            if kanji not in kanji_reading_counts:
+                                kanji_reading_counts[kanji] = {}
+                            if pair_reading not in kanji_reading_counts[kanji]:
+                                kanji_reading_counts[kanji][pair_reading] = 0
 
-            pair_counts[primary_pair] += 1
+                            # Check if we can add this card for this kanji-reading
+                            if kanji_reading_counts[kanji][pair_reading] < 5:
+                                can_add = True
+                            break
 
-            # Find which kanji are shared (for highlighting)
-            shared_kanji = set()
-            for pair in shared_pairs:
-                match = re.match(r'([一-龯]+)\[', pair)
-                if match:
-                    shared_kanji.add(match.group(1))
+            if not can_add:
+                continue  # Skip this card, already have 5 examples for all readings
+
+            # Increment counts for all shared kanji-readings in this card
+            for kanji in shared_kanji:
+                for pair in related_card_pairs:
+                    match = re.match(r'([^[]+)\[([^]]*)\]', pair)
+                    if match:
+                        pair_kanji, pair_reading = match.groups()
+                        if pair_kanji == kanji:
+                            if kanji not in kanji_reading_counts:
+                                kanji_reading_counts[kanji] = {}
+                            if pair_reading not in kanji_reading_counts[kanji]:
+                                kanji_reading_counts[kanji][pair_reading] = 0
+                            kanji_reading_counts[kanji][pair_reading] += 1
+                            break
 
             # Create color mapping for shared kanji
             shared_kanji_colors = {kanji: kanji_to_color.get(kanji) for kanji in shared_kanji if kanji in kanji_to_color}

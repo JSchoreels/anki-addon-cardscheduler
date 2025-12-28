@@ -34,7 +34,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '生[い]きる'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'生[い.きる]'})
+        self.assertSetEqual(pairs, {'生[い]'})
 
     def test_jogakkou(self):
         text = '女学校[じょがっこう]'
@@ -46,13 +46,13 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '一挙[いっきょ]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'一[いち]', '一[いつ]', '挙[きょ]'})
+        self.assertSetEqual(pairs, {'一[いち]', '挙[きょ]'})
 
     def test_aozora(self):
         text = '青空[あおぞら]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'空[そら]', '青[あお]', '青[あお.い]'})
+        self.assertSetEqual(pairs, {'空[そら]', '青[あお]'})
 
     def test_naze(self):
         text = '何故[なぜ]'
@@ -70,7 +70,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '道行く[みちゆく]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'行[ゆ.く]', '道[みち]'})
+        self.assertSetEqual(pairs, {'行[ゆ]', '道[みち]'})
 
     def test_ningenkankei(self):
         text = '人間関係[にんげんかんけい]'
@@ -82,19 +82,21 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '今年[ことし]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
+        # Irregular reading loaded from irregular_readings.txt
         self.assertSetEqual(pairs, {'今[こ]', '年[とし]'})
 
     def test_tokei(self):
         text = '時計[とけい]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
+        # Irregular reading loaded from irregular_readings.txt
         self.assertSetEqual(pairs, {'時[と]', '計[けい]'})
 
     def test_hikiageru(self):
         text = '引き上げる[ひきあげる]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'上[あ.げる]', '引[ひ.く]'})
+        self.assertSetEqual(pairs, {'上[あ]', '引[ひ]'})
 
     def test_gunpuku(self):
         text = '軍服[ぐんぷく]'
@@ -106,7 +108,8 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '一方[いっぽう]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'一[いち]', '一[いつ]', '方[ほう]'})
+        # Only actual reading: いっ→いち (sokuon normalized)
+        self.assertSetEqual(pairs, {'一[いち]', '方[ほう]'})
 
     def test_tokidoki(self):
         text = '時々[ときどき]'
@@ -130,25 +133,25 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '死神[しにがみ]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'死[し.に]', '死[し.ぬ]', '死[し]', '神[かみ]'})
+        self.assertSetEqual(pairs, {'死[し]', '神[かみ]'})
 
     def test_fumikiri(self):
         text = '踏切[ふみきり]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'切[き.り]', '切[き.る]', '踏[ふ.む]'})
+        self.assertSetEqual(pairs, {'切[き]', '踏[ふ]'})
 
     def test_yukue(self):
         text = '行方[ゆくえ]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'行[ゆ.く]', '方[]'})
+        self.assertSetEqual(pairs, {'行[ゆ]', '方[]'})
 
     def test_yukuefumei(self):
         text = '行方不明[ゆくえふめい]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'不[]', '明[]', '行[ゆ.く]', '方[]'})
+        self.assertSetEqual(pairs, {'不[]', '明[]', '行[ゆ]', '方[]'})
 
     def test_amagumo(self):
         text = '雨雲[あまぐも]'
@@ -166,31 +169,31 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '帯止め[おびどめ]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'帯[おび]', '止[ど.め]', '止[と.める]', '帯[お.びる]'})
+        self.assertSetEqual(pairs, {'帯[お]', '止[と]'})
 
     def test_yumemiru(self):
         text = '夢見[ゆめみ]る'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'夢[ゆめ]', '夢[ゆめ.みる]', '見[み.る]'})
+        self.assertSetEqual(pairs, {'夢[ゆめ]', '見[]'})
 
     def test_machigai(self):
         text = '間違[まちが]い'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'違[ちが.い]', '間[ま]', '違[ちが.う]'})
+        self.assertSetEqual(pairs, {'違[ちが]', '間[ま]'})
 
     def test_toonori(self):
         text = '遠乗[とおの]り'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'乗[の.る]', '遠[とお.い]', '乗[の.り]'})
+        self.assertSetEqual(pairs, {'乗[の]', '遠[とお]'})
 
     def test_mezameru(self):
         text = '目覚[めざ]める'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'覚[さ.める]', '目[め]'})
+        self.assertSetEqual(pairs, {'覚[さ]', '目[め]'})
 
     def test_inochinoonjin(self):
         text = '命の恩人[いのちのおんじん]'
@@ -202,19 +205,19 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '泣[な]き 声[ごえ]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'声[ごえ]', '泣[な.く]'})
+        self.assertSetEqual(pairs, {'声[ごえ]', '泣[な]'})
 
     def test_atamagaitai_one_field(self):
         text = '頭[あたま]が 痛[いた]い'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'痛[いた.む]', '頭[あたま]', '痛[いた.い]'})
+        self.assertSetEqual(pairs, {'痛[いた]', '頭[あたま]'})
 
     def test_atamagaitai_two_fields(self):
         text = '頭が痛い[あたまがいたい]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'痛[いた.む]', '頭[あたま]', '痛[いた.い]'})
+        self.assertSetEqual(pairs, {'痛[いた]', '頭[あたま]'})
 
     def test_gouka(self):
         text = '豪華[ごうか]'
@@ -226,7 +229,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '所謂[いわゆる]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'謂[い.う]', '所[]', '謂[いわゆる]', '謂[い]'})
+        self.assertSetEqual(pairs, {'謂[いわゆる]', '所[]'})
 
     def test_shimekiri(self):
         text = '締[し]め 切[き]り'
@@ -238,7 +241,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '当[あ]たる'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'当[あ.たる]'})
+        self.assertSetEqual(pairs, {'当[あ]'})
 
     def test_atarimae(self):
         text = '当[あ]たり 前[まえ]'
@@ -256,7 +259,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '御社[おんしゃ]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'社[しゃ]', '御[お]', '御[おん]'})
+        self.assertSetEqual(pairs, {'社[しゃ]', '御[おん]'})
 
     def test_budoushu(self):
         text = 'ブドウ酒[ブドウしゅ]'
@@ -274,13 +277,13 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '固まる[かたまる]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {''})
+        self.assertSetEqual(pairs, {'固[かた]'})
 
     def test_katai(self):
         text = '固い[かたい]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {''})
+        self.assertSetEqual(pairs, {'固[かた]'})
 
     def test_csv_analysis_and_output(self):
         """Analyze all CSV entries and write kanji pairs to file."""

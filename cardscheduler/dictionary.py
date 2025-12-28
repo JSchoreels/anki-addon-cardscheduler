@@ -174,4 +174,48 @@ def load_kanji_dictionnary_readings():
                 readings_map[reading_text] = variations
 
         kanji_readings[kanji] = readings_map
+
+    # Load irregular readings
+    load_irregular_readings(kanji_readings)
+
     return kanji_readings
+
+
+def load_irregular_readings(kanji_readings):
+    """Load irregular readings (jukujikun) from file and add to dictionary.
+
+    Format: kanji_word reading kanji1_reading kanji2_reading ...
+    Example: 今年 ことし こ とし
+    """
+    import os
+    irregular_file = os.path.join(os.path.dirname(__file__), 'resources', 'irregular_readings.txt')
+
+    if not os.path.exists(irregular_file):
+        return
+
+    with open(irregular_file, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            # Skip comments and empty lines
+            if not line or line.startswith('#'):
+                continue
+
+            parts = line.split()
+            if len(parts) < 3:
+                continue
+
+            kanji_word = parts[0]
+            full_reading = parts[1]
+            individual_readings = parts[2:]
+
+            # Extract kanji from the word
+            kanji_chars = [c for c in kanji_word if '\u4e00' <= c <= '\u9fff']
+
+            # Add individual readings for each kanji
+            for kanji, reading in zip(kanji_chars, individual_readings):
+                if kanji not in kanji_readings:
+                    kanji_readings[kanji] = {}
+
+                # Add the irregular reading as a base reading
+                if reading not in kanji_readings[kanji]:
+                    kanji_readings[kanji][reading] = [reading]

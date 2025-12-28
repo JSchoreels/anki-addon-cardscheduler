@@ -174,6 +174,28 @@ def is_rendaku_of(reading, base_reading):
     return False
 
 
+def is_handakuon_of(reading, base_reading):
+    """Check if reading is the handakuon (p-sound) form of base_reading.
+
+    Handakuon: は/ひ/ふ/へ/ほ → ぱ/ぴ/ぷ/ぺ/ぽ
+    Example: ぴょう is handakuon of ひょう
+    """
+    if not reading or not base_reading:
+        return False
+
+    # Handakuon mappings (inverse: p-sound → h-sound)
+    handakuon_inverse = {
+        'ぱ': 'は', 'ぴ': 'ひ', 'ぷ': 'ふ', 'ぺ': 'へ', 'ぽ': 'ほ',
+    }
+
+    first_char = reading[0]
+    if first_char in handakuon_inverse:
+        h_version = handakuon_inverse[first_char] + reading[1:]
+        return h_version == base_reading
+
+    return False
+
+
 def extract_actual_readings(kanji_word, reading, kanji_readings):
     """Extract actual readings for each kanji from the furigana text.
 
@@ -197,6 +219,19 @@ def extract_actual_readings(kanji_word, reading, kanji_readings):
         if kanji not in kanji_readings:
             # Unknown kanji, skip
             continue
+
+        # Skip any kana in the reading that corresponds to kana in the kanji_word
+        if pos_idx > 0:
+            prev_kanji_pos = kanji_positions[pos_idx - 1][0]
+            # Check for kana between previous kanji and current kanji
+            kana_between_start = prev_kanji_pos + 1
+            kana_between_end = kanji_pos
+            if kana_between_end > kana_between_start:
+                # There's kana between the kanji
+                kana_text = kanji_word[kana_between_start:kana_between_end]
+                # Skip this kana in the reading
+                if reading[reading_index:reading_index + len(kana_text)] == kana_text:
+                    reading_index += len(kana_text)
 
         possible_readings = kanji_readings[kanji]
         remaining_reading = reading[reading_index:]
@@ -227,14 +262,21 @@ def extract_actual_readings(kanji_word, reading, kanji_readings):
                 kanji_reading_part = best_match_base
                 actual_reading = remaining_reading[:len(best_match_base)]
 
-            # Normalize rendaku: convert voiced reading to unvoiced base form
+            # Normalize rendaku and handakuon: convert to base form
             # BUT only if the actual_reading is NOT a valid base reading itself
-            # Example: どき→とき (どき not in dictionary), but だい stays だい (だい is valid)
+            # Examples:
+            #   - どき→とき (rendaku, どき not in dictionary)
+            #   - ぴょう→ひょう (handakuon, ぴょう not in dictionary)
+            #   - だい stays だい (だい is valid on-yomi)
             normalized_reading = actual_reading
+
+            # Check rendaku normalization
             if is_rendaku_of(actual_reading, kanji_reading_part):
-                # Check if actual_reading is a valid base reading
                 if actual_reading not in possible_readings:
-                    # It's not a base reading, so normalize to the base form
+                    normalized_reading = kanji_reading_part
+            # Check handakuon normalization
+            elif is_handakuon_of(actual_reading, kanji_reading_part):
+                if actual_reading not in possible_readings:
                     normalized_reading = kanji_reading_part
 
             pairs.append((kanji, normalized_reading))
