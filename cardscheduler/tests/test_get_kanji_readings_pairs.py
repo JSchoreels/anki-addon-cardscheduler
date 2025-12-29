@@ -181,7 +181,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '夢見[ゆめみ]る'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'夢[ゆめ]', '見[]'})
+        self.assertSetEqual(pairs, {'見[み]', '夢[ゆめ]'})
 
     def test_machigai(self):
         text = '間違[まちが]い'
@@ -290,6 +290,13 @@ class TestKanjiReadingPairs(unittest.TestCase):
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
         self.assertSetEqual(pairs, {'固[かた]'})
+
+    def test_shippai(self):
+        text = '失敗[しっぱい]'
+        pairs = get_kanji_reading_pairs(text, self.kanji_readings)
+        print(f"Actual pairs for {text}: {pairs}")
+        self.assertSetEqual(pairs, {'失[しつ]', '敗[はい]'})
+
 
     def test_csv_analysis_and_output(self):
         """Analyze all CSV entries and write kanji pairs to file."""

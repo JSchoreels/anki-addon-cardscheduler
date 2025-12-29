@@ -71,6 +71,11 @@ def get_rendaku_form_p(reading):
 
     return None
 
+def get_sokuon_form(reading):
+    """Generate sokuon form of a reading if applicable."""
+    if len(reading) > 1 and reading[-1] in ['つ', 'ち', 'く', 'き', 'さ', 'し', 'そ', 'こ', 'て', 'と', 'け'] :
+        return reading[:-1] + 'っ'
+    return None
 
 def expand_iteration_marks(kanji_word):
     """Expand 々 iteration marks in a kanji word."""
@@ -156,6 +161,7 @@ def load_kanji_dictionnary_readings():
                     rendaku_form_p = get_rendaku_form_p(variation)
                     if rendaku_form_p:
                         rendaku_variations.append(rendaku_form_p)
+
                 variations.extend(rendaku_variations)
 
                 readings_map[reading_text] = variations
@@ -171,6 +177,9 @@ def load_kanji_dictionnary_readings():
                 rendaku_form_p = get_rendaku_form_p(reading_text)
                 if rendaku_form_p:
                     variations.append(rendaku_form_p)
+                sokuon_form = get_sokuon_form(reading_text)
+                if sokuon_form:
+                    variations.append(sokuon_form)
                 readings_map[reading_text] = variations
 
         kanji_readings[kanji] = readings_map

@@ -45,7 +45,7 @@ class TestRelatedWords(unittest.TestCase):
         print(f"失敗[しっぱい] known: {card3.related_words_known}, unknown: {card3.related_words_unknown}")
 
         self.assert_pair_highlighted(card1.related_words_known, "恋[れん]", "失恋 should have 恋愛 with 恋[れん] highlighted")
-        self.assert_pair_highlighted(card1.related_words_unknown, "失[しつ]", "失恋 should have 失敗 with 失[しつ] highlighted")
+        self.assert_pair_highlighted(card1.related_words_unknown, "失[しっ]", "失恋 should have 失敗 with 失[しつ] highlighted")
         self.assert_pair_highlighted(card2.related_words_unknown, "恋[れん]", "恋愛 should have 失恋 with 恋[れん] highlighted")
         self.assert_pair_highlighted(card3.related_words_unknown, "失[しつ]", "失敗 should have 失恋 with 失[しつ] highlighted")
 
@@ -140,7 +140,7 @@ class TestRelatedWords(unittest.TestCase):
         print(f"失恋[しつれん] unknown: {card1.related_words_unknown}")
 
         self.assert_pair_highlighted(card1.related_words_known, "恋[れん]", "恋愛 should be in known with 恋[れん] highlighted")
-        self.assert_pair_highlighted(card1.related_words_unknown, "失[しつ]", "失敗 should be in unknown with 失[しつ] highlighted")
+        self.assert_pair_highlighted(card1.related_words_unknown, "失[しっ]", "失敗 should be in unknown with 失[しつ] highlighted")
         # Now shows ALL kanji matches (including different readings), so may have more than 1
         self.assertGreaterEqual(card1.related_words_known.count(',') + (1 if card1.related_words_known else 0), 1, "Should have at least 1 known related word")
         self.assertGreaterEqual(card1.related_words_unknown.count(',') + (1 if card1.related_words_unknown else 0), 1, "Should have at least 1 unknown related word")

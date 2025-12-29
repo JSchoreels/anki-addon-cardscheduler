@@ -217,7 +217,7 @@ def parse_furigana_to_segments(furigana_text, kanji_readings):
             if reading_parts:
                 # Track position in kanji_word
                 remaining_word = kanji_word
-                for kanji, reading_part in reading_parts:
+                for kanji, reading_part, reading_base in reading_parts:
                     # Find kanji position in remaining word
                     if kanji in remaining_word:
                         idx = remaining_word.index(kanji)
