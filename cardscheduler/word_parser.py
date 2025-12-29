@@ -263,7 +263,6 @@ def extract_actual_readings(kanji_word, reading, kanji_readings):
                 actual_reading = remaining_reading[:len(best_match_base)]
 
             # Normalize rendaku and handakuon: convert to base form
-            # BUT only if the actual_reading is NOT a valid base reading itself
             # Examples:
             #   - どき→とき (rendaku, どき not in dictionary)
             #   - ぴょう→ひょう (handakuon, ぴょう not in dictionary)
@@ -272,12 +271,10 @@ def extract_actual_readings(kanji_word, reading, kanji_readings):
 
             # Check rendaku normalization
             if is_rendaku_of(actual_reading, kanji_reading_part):
-                if actual_reading not in possible_readings:
-                    normalized_reading = kanji_reading_part
+                normalized_reading = kanji_reading_part
             # Check handakuon normalization
             elif is_handakuon_of(actual_reading, kanji_reading_part):
-                if actual_reading not in possible_readings:
-                    normalized_reading = kanji_reading_part
+                normalized_reading = kanji_reading_part
 
             pairs.append((kanji, normalized_reading))
             reading_index += best_match_length
@@ -337,7 +334,7 @@ def split_reading_with_positions(kanji_word, reading, kanji_readings):
 
             if remaining_reading.startswith(extended_reading):
                 # Store the base reading
-                pairs.append((kanji, base_reading))
+                pairs.append((kanji, extended_reading))
                 max_new_pairs_size = max(max_new_pairs_size, len(extended_reading))
                 last_extended_reading_matched = extended_reading
                 exact_match_found = True

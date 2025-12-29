@@ -105,6 +105,7 @@ def transform_kanjidic(input_file, output_file):
 
         # Filter out rendaku versions (only for kun-yomi, not on-yomi)
         ja_kun_readings = filter_rendaku_readings(ja_kun_readings)
+        ja_on_readings = filter_rendaku_readings(ja_on_readings)
         # Don't filter on-yomi - both たい and だい are valid readings, not rendaku
 
         # Add filtered readings to XML

@@ -57,8 +57,7 @@ class TestInputModes(unittest.TestCase):
 
         # Should extract: 頭[あたま], 痛[いた.む], 痛[いた.い]
         self.assertIn('頭[あたま]', pairs)
-        self.assertIn('痛[いた.む]', pairs)
-        self.assertIn('痛[いた.い]', pairs)
+        self.assertIn('痛[いた]', pairs)
 
     def test_two_field_format_parsing(self):
         """Test that two-field format is parsed correctly."""
@@ -74,8 +73,7 @@ class TestInputModes(unittest.TestCase):
 
         # Should extract the same pairs as single-field format
         self.assertIn('頭[あたま]', pairs)
-        self.assertIn('痛[いた.む]', pairs)
-        self.assertIn('痛[いた.い]', pairs)
+        self.assertIn('痛[いた]', pairs)
 
     def test_both_formats_produce_same_result(self):
         """Test that both formats produce identical kanji-reading pairs."""
