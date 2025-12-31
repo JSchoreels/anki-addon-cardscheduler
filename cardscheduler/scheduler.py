@@ -14,8 +14,6 @@ from collections import defaultdict
 from .dictionary import load_kanji_dictionnary_readings
 from .word_parser import get_kanji_reading_pairs, count_kanji_in_text, count_kana_in_text
 
-# Color palette for highlighting shared kanji in related words
-HIGHLIGHT_COLORS = ['lightgreen', 'lightblue', 'pink', 'lightyellow', 'lightcoral', 'lightseagreen', 'plum', 'peachpuff']
 EXAMPLE_LIMIT_BY_KANJIREADING_PAIR = 3
 
 class CardInfo:
@@ -32,8 +30,8 @@ class CardInfo:
         self.score_without_missing = 0  # Score this card would have if missing kanji were known
         self.missing_kanji_count = 0  # Number of unknown kanji/readings in this card
         self.position = 0  # Learning order position (1 = highest priority)
-        self.related_words_known = []  # Related words with stability > 0
-        self.related_words_unknown = []  # Related words with stability = 0
+        self.related_cards_known = []  # List of (CardInfo, shared_kanji_set) tuples with stability > 0
+        self.related_cards_unknown = []  # List of (CardInfo, shared_kanji_set) tuples with stability = 0
 
     def __repr__(self):
         return f"CardInfo(id={self.card_id}, furigana='{self.furigana_text}', interval={self.stability}, score={self.score}, unknowns={self.unknown_kanji_readings}, unlock={self.unlock_potential}, median_increase={self.unlock_median_score_increase}, pos={self.position})"
@@ -88,14 +86,6 @@ def update_kanji_reading_to_cards_with_max_weighted_interval(kanji_reading_to_ca
                 weighted_intervals.append(weighted_interval)
 
         info.max_weighted_interval = max(weighted_intervals) if weighted_intervals else 0.0
-
-
-def print_kanji_readings_with_average_interval(kanji_reading_to_cards):
-    """Debug output: Show global kanji-reading averages."""
-    print("Global kanji-reading averages:")
-    for pair, info in kanji_reading_to_cards.items():
-        print(
-            f"Pair '{pair}': average_interval={info.max_weighted_interval:.2f}, matched_cards_count={len(info.matched_cards)}")
 
 
 def compute_unlock_potential(kanji_reading_to_cards, kanji_readings, cards):
@@ -181,108 +171,10 @@ def compute_unlock_potential(kanji_reading_to_cards, kanji_readings, cards):
             pair_info.unlock_median_score_increase = 0
 
 
-def parse_furigana_to_segments(furigana_text, kanji_readings):
-    """Parse furigana text into segments of kana and kanji[reading] pairs.
-
-    Preserves the actual readings from the furigana text, not dictionary readings.
-    """
-    import re
-
-    # Pattern to match kanji_word[reading] groups
-    pattern = r'([一-龯ぁ-ゖァ-ヺー々]+)\[([ぁ-ゖァ-ヺー]+)\]'
-    segments = []
-    last_end = 0
-
-    for match in re.finditer(pattern, furigana_text):
-        # Add any kana text before this match
-        if match.start() > last_end:
-            segments.append(('kana', furigana_text[last_end:match.start()]))
-
-        kanji_word = match.group(1)
-        full_reading = match.group(2)
-
-        # Extract individual kanji and their readings
-        kanji_chars = [c for c in kanji_word if '\u4e00' <= c <= '\u9fff']
-
-        if len(kanji_chars) == 1:
-            # Single kanji - preserve the reading as-is
-            kanji = kanji_chars[0]
-            segments.append(('kanji', f'{kanji}[{full_reading}]'))
-        else:
-            # Multiple kanji - try to distribute the reading
-            # For simplicity, we'll keep the original format and let the dictionary help
-            from .word_parser import split_reading_with_positions
-            reading_parts = split_reading_with_positions(kanji_word, full_reading, kanji_readings)
-
-            if reading_parts:
-                # Track position in kanji_word
-                remaining_word = kanji_word
-                for kanji, reading_part, reading_base in reading_parts:
-                    # Find kanji position in remaining word
-                    if kanji in remaining_word:
-                        idx = remaining_word.index(kanji)
-                        # Add kana before this kanji
-                        if idx > 0:
-                            segments.append(('kana', remaining_word[:idx]))
-                        # Add the kanji with its reading
-                        segments.append(('kanji', f'{kanji}[{reading_part}]'))
-                        remaining_word = remaining_word[idx+1:]
-
-                # Add any remaining kana
-                if remaining_word:
-                    segments.append(('kana', remaining_word))
-            else:
-                # Fallback - just add the whole thing as kana
-                segments.append(('kana', f'{kanji_word}[{full_reading}]'))
-
-        last_end = match.end()
-
-    # Add any remaining kana text
-    if last_end < len(furigana_text):
-        segments.append(('kana', furigana_text[last_end:]))
-
-    return segments
-
-
-def highlight_shared_kanji(furigana_text, shared_kanji_colors, kanji_readings):
-    """Highlight shared kanji in the full furigana text, preserving all kana."""
-    if not shared_kanji_colors or not furigana_text:
-        return furigana_text
-
-    segments = parse_furigana_to_segments(furigana_text, kanji_readings)
-
-    result = []
-    import re
-    for i, (seg_type, seg_value) in enumerate(segments):
-        if seg_type == 'kana':
-            # Check if next segment will be highlighted
-            if i + 1 < len(segments):
-                next_seg_type, next_seg_value = segments[i + 1]
-                if next_seg_type == 'kanji':
-                    match = re.match(r'([一-龯]+)\[', next_seg_value)
-                    if match and match.group(1) in shared_kanji_colors:
-                        # Next segment will be highlighted, remove trailing space
-                        seg_value = seg_value.rstrip(' ')
-            result.append(seg_value)
-        else:  # kanji[reading] pair like "込[こ]"
-            # Extract just the kanji character
-            match = re.match(r'([一-龯]+)\[', seg_value)
-            if match:
-                kanji = match.group(1)
-                if kanji in shared_kanji_colors:
-                    color = shared_kanji_colors[kanji]
-                    result.append(f'<span style="color: {color};">{seg_value}</span>')
-                else:
-                    result.append(seg_value)
-            else:
-                result.append(seg_value)
-
-    return ''.join(result)
-
-
 def compute_related_words(cards, kanji_reading_to_cards, kanji_readings):
     """Find all cards that share at least one kanji with same base reading, split by known/unknown.
 
+    Stores related cards as data structures (not HTML).
     Optimized to O(N) by pre-computing all pairs once.
     """
     import re
@@ -315,8 +207,8 @@ def compute_related_words(cards, kanji_reading_to_cards, kanji_readings):
     # Step 3: For each card, find related cards using index - O(N*K*R)
     for card_info in cards:
         if not card_info.furigana_text:
-            card_info.related_words_known = ""
-            card_info.related_words_unknown = ""
+            card_info.related_cards_known = []
+            card_info.related_cards_unknown = []
             continue
 
         current_pairs = card_to_pairs[card_info.card_id]
@@ -327,11 +219,6 @@ def compute_related_words(cards, kanji_reading_to_cards, kanji_readings):
             match = re.match(r'([^[]+)\[', pair)
             if match:
                 current_kanji.add(match.group(1))
-
-        # Create color mapping for this card's kanji
-        kanji_to_color = {}
-        for i, kanji in enumerate(current_kanji):
-            kanji_to_color[kanji] = HIGHLIGHT_COLORS[i % len(HIGHLIGHT_COLORS)]
 
         # Track reading counts per kanji: kanji -> {reading -> count}
         kanji_reading_counts_known = {}
@@ -360,12 +247,12 @@ def compute_related_words(cards, kanji_reading_to_cards, kanji_readings):
 
         related_cards_info = list(related_cards_map.values())
 
-        # Sort by: 1) kanji count, 2) stability
+        # Sort by: 1) shared kanji count, 2) stability
         def sort_key(item):
-            c, _ = item
+            c, shared_kanji = item
             return (
-                count_kanji_in_text(c.furigana_text),
-                -c.stability
+                len(shared_kanji),  # Number of shared kanji (ascending: singles first)
+                -c.stability        # Higher stability first (descending)
             )
 
         related_cards_info.sort(key=sort_key)
@@ -418,19 +305,15 @@ def compute_related_words(cards, kanji_reading_to_cards, kanji_readings):
                             kanji_reading_counts[kanji][pair_reading] += 1
                             break
 
-            # Create color mapping for shared kanji
-            shared_kanji_colors = {kanji: kanji_to_color.get(kanji) for kanji in shared_kanji if kanji in kanji_to_color}
-
-            # Pass the full furigana_text to preserve all kana parts
-            highlighted_text = highlight_shared_kanji(related_card.furigana_text, shared_kanji_colors, kanji_readings)
-
+            # Store related card as data (CardInfo, shared_kanji set)
             if is_known:
-                known_words.append(highlighted_text)
+                known_words.append((related_card, shared_kanji))
             else:
-                unknown_words.append(highlighted_text)
+                unknown_words.append((related_card, shared_kanji))
 
-        card_info.related_words_known = ',　 '.join(known_words) if known_words else ""
-        card_info.related_words_unknown = ',　 '.join(unknown_words) if unknown_words else ""
+        # Store lists of tuples (not HTML)
+        card_info.related_cards_known = known_words
+        card_info.related_cards_unknown = unknown_words
 
 
 def compute_scores(cards):
@@ -441,8 +324,6 @@ def compute_scores(cards):
     kanji_reading_to_cards = get_kanji_reading_to_matching_card(cards, kanji_readings)
 
     update_kanji_reading_to_cards_with_max_weighted_interval(kanji_reading_to_cards, kanji_readings)
-
-    print_kanji_readings_with_average_interval(kanji_reading_to_cards)
 
     # Step 2: Compute score for each card (simplified)
     for card_info in cards:

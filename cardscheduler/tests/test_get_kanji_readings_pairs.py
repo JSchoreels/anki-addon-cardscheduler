@@ -52,7 +52,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '一挙[いっきょ]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'一[いつ]', '挙[きょ]'})
+        self.assertSetEqual(pairs, {'一[いち]', '挙[きょ]'})
 
     def test_aozora(self):
         text = '青空[あおぞら]'
@@ -64,7 +64,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '何故[なぜ]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'何[ ]', '故[ ]'})
+        self.assertSetEqual(pairs, {'何[な]', '故[ぜ]'})
 
     def test_muccha(self):
         text = '無茶[むっちゃ]'
@@ -115,7 +115,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
         # Only actual reading: いっ→いち (sokuon normalized)
-        self.assertSetEqual(pairs, {'一[いつ]', '方[ほう]'})
+        self.assertSetEqual(pairs, {'一[いち]', '方[ほう]'})
 
     def test_tokidoki(self):
         text = '時々[ときどき]'
@@ -175,7 +175,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '帯止め[おびどめ]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'帯[お]', '止[ど]'})
+        self.assertSetEqual(pairs, {'帯[お]', '止[と]'})
 
     def test_yumemiru(self):
         text = '夢見[ゆめみ]る'
@@ -319,7 +319,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '数ヶ月[すうかげつ]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {})
+        self.assertSetEqual(pairs, {'数[すう]', '月[げつ]'})
 
     def test_uwaki(self):
         text = '浮気[うわき]'

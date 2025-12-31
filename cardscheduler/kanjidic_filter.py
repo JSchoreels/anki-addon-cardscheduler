@@ -90,6 +90,7 @@ def transform_kanjidic(input_file, output_file):
 
         # Look for readings in reading_meaning/rmgroup
         readings_root = character.find("reading_meaning")
+        meanings = []
         if readings_root is not None:
             for rmgroup in readings_root.findall("rmgroup"):
                 # ja_kun readings
@@ -103,6 +104,11 @@ def transform_kanjidic(input_file, output_file):
                     if processed:
                         ja_on_readings.append(katakana_to_hiragana(processed))
 
+                # Extract meanings (English only - no m_lang attribute)
+                for meaning in rmgroup.findall("meaning"):
+                    if 'm_lang' not in meaning.attrib and meaning.text:
+                        meanings.append(meaning.text)
+
         # Filter out rendaku versions (only for kun-yomi, not on-yomi)
         ja_kun_readings = filter_rendaku_readings(ja_kun_readings)
         ja_on_readings = filter_rendaku_readings(ja_on_readings)
@@ -115,6 +121,11 @@ def transform_kanjidic(input_file, output_file):
         for reading in ja_on_readings:
             r_elem = ET.SubElement(char_el, "ja_on")
             r_elem.text = reading
+
+        # Add meanings to XML (all meanings, no limit here)
+        for meaning in meanings:
+            m_elem = ET.SubElement(char_el, "meaning")
+            m_elem.text = meaning
 
     # Write out the new light XML file with pretty formatting
     tree_light = ET.ElementTree(light_root)

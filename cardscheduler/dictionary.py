@@ -101,19 +101,26 @@ def expand_iteration_marks(kanji_word):
     return ''.join(parts)
 
 
-def load_kanji_dictionnary_readings():
-    """Load kanji readings from kanjidic2_light.xml into a dictionary.
-    For each kanji, map verb_kanji_part reading to a list of all its variations."""
-
+def _load_kanjidic_xml():
+    """Load kanjidic2_light.xml and return the root element, or None on error."""
     current_dir = os.path.dirname(os.path.abspath(__file__))
     xml_file = os.path.join(current_dir, 'resources', 'kanjidic2_light.xml')
 
     try:
         tree = ET.parse(xml_file)
-        root = tree.getroot()
+        return tree.getroot()
     except Exception as e:
-        print(f"Unexpected error loading kanji readings: {e}")
+        print(f"Unexpected error loading kanji data: {e}")
         showInfo(f"Error loading kanji data: {str(e)}")
+        return None
+
+
+def load_kanji_dictionnary_readings():
+    """Load kanji readings from kanjidic2_light.xml into a dictionary.
+    For each kanji, map verb_kanji_part reading to a list of all its variations."""
+
+    root = _load_kanjidic_xml()
+    if root is None:
         return {}
 
     kanji_readings = {}
@@ -183,7 +190,8 @@ def load_kanji_dictionnary_readings():
                 variations.extend([get_sokuon_form(reading_text) for reading_text in variations if get_sokuon_form(reading_text)])
                 readings_map[reading_text] = variations
 
-        kanji_readings[kanji] = readings_map
+        # Sort readings_map by key to ensure deterministic order
+        kanji_readings[kanji] = dict(sorted(readings_map.items()))
 
     # Load irregular readings
     load_irregular_readings(kanji_readings)
@@ -229,3 +237,21 @@ def load_irregular_readings(kanji_readings):
                 # Add the irregular reading as a base reading
                 if reading not in kanji_readings[kanji]:
                     kanji_readings[kanji][reading] = [reading]
+
+
+def load_kanji_meanings():
+    """Load kanji meanings from kanjidic2_light.xml.
+    Returns: {kanji: [meaning1, meaning2, ...]}
+    """
+    root = _load_kanjidic_xml()
+    if root is None:
+        return {}
+
+    kanji_meanings = {}
+    for character in root.findall('character'):
+        kanji = character.find('literal').text
+        meanings = [meaning.text for meaning in character.findall('meaning') if meaning.text]
+        if meanings:
+            kanji_meanings[kanji] = meanings
+
+    return kanji_meanings

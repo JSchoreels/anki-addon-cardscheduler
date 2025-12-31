@@ -31,6 +31,7 @@ from .config import (
     FIELD_NAME_MISSING_KANJI_COUNT,
     FIELD_NAME_RELATED_KNOWN,
     FIELD_NAME_RELATED_UNKNOWN,
+    FIELD_NAME_KANJI_MEANINGS,
     SIMULATE_ZERO_STABILITY,
     INPUT_MODE,
     INPUT_MODE_SINGLE_FIELD,
@@ -39,6 +40,7 @@ from .config import (
     INPUT_FIELD_KANJI,
     INPUT_FIELD_READING
 )
+from .html_formatter import format_card_html
 
 
 def get_field_value(note, field_name):
@@ -210,7 +212,7 @@ def print_scores(cards, new_card_ids=None):
                   f"ScoreNoMissing: {card.score_without_missing:6.1f} | Missing: {card.missing_kanji_count}")
 
 
-def update_cards_score(cards_score, collection,
+def update_cards_score(cards_score, collection, kanji_meanings, kanji_readings,
                        position_field=FIELD_NAME_POSITION,
                        score_field=FIELD_NAME_SCORE,
                        unlock_potential_field=FIELD_NAME_UNLOCK_POTENTIAL,
@@ -221,6 +223,8 @@ def update_cards_score(cards_score, collection,
     Args:
         cards_score: List of CardInfo objects
         collection: Anki collection
+        kanji_meanings: Dict mapping kanji to meanings
+        kanji_readings: Dict mapping kanji to readings
         position_field: Name of position field
         score_field: Name of score field
         unlock_potential_field: Name of unlock potential field
@@ -229,14 +233,14 @@ def update_cards_score(cards_score, collection,
         available_fields: Set of field names that are available (to skip missing fields)
     """
     if available_fields is None:
-        available_fields = set()  # Empty set means all fields will be skipped with warnings
+        available_fields = set()
 
     update_count = 0
     for card in cards_score:
         is_new = new_card_ids and card.card_id in new_card_ids
         if dry_run:
             update_count += 1
-        elif update_card_fields(card, collection,
+        elif update_card_fields(card, collection, kanji_meanings, kanji_readings,
                                position_field=position_field,
                                score_field=score_field,
                                unlock_potential_field=unlock_potential_field,
@@ -247,6 +251,8 @@ def update_cards_score(cards_score, collection,
 
 
 def update_card_fields(card_info, collection,
+                       kanji_meanings,
+                       kanji_readings,
                        position_field=FIELD_NAME_POSITION,
                        score_field=FIELD_NAME_SCORE,
                        unlock_potential_field=FIELD_NAME_UNLOCK_POTENTIAL,
@@ -283,6 +289,13 @@ def update_card_fields(card_info, collection,
     field_indices = {}
     for i, fld in enumerate(note_type['flds']):
         field_indices[fld['name']] = i
+
+    # Generate HTML for all display fields
+    related_known_html, related_unknown_html, meanings_html = format_card_html(
+        card_info,
+        kanji_meanings,
+        kanji_readings
+    )
 
     # Track if any field was updated
     updated = False
@@ -323,41 +336,24 @@ def update_card_fields(card_info, collection,
 
     # Update related known words field (for all cards)
     if related_known_field in available_fields and related_known_field in field_indices:
-        note.fields[field_indices[related_known_field]] = card_info.related_words_known
+        note.fields[field_indices[related_known_field]] = related_known_html
         updated = True
 
     # Update related unknown words field (for all cards)
     if related_unknown_field in available_fields and related_unknown_field in field_indices:
-        note.fields[field_indices[related_unknown_field]] = card_info.related_words_unknown
+        note.fields[field_indices[related_unknown_field]] = related_unknown_html
+        updated = True
+
+    # Update kanji meanings field (for all cards)
+    kanji_meanings_field = FIELD_NAME_KANJI_MEANINGS
+    if kanji_meanings_field in available_fields and kanji_meanings_field in field_indices:
+        note.fields[field_indices[kanji_meanings_field]] = meanings_html
         updated = True
 
     if updated:
         collection.update_note(note)
         return True
     else:
-        return False
-
-
-def update_card_score(card_id, score, collection, score_field="MyPosition"):
-    """Legacy function - kept for backwards compatibility."""
-    card = collection.get_card(card_id)
-    note = card.note()
-    note_type = note.note_type()
-
-    # Find the field index
-    field_index = None
-    for i, fld in enumerate(note_type['flds']):
-        if fld['name'] == score_field:
-            field_index = i
-            break
-
-    if field_index is not None:
-        # Update the field with the score (rounded to 1 decimal place)
-        note.fields[field_index] = str(round(score, 1))
-        collection.update_note(note)
-        return True
-    else:
-        print(f"Field '{score_field}' not found in note type: {note_type['name']}")
         return False
 
 
@@ -446,11 +442,17 @@ def process_collection(collection=None, dry_run=False, reposition=False):
         FIELD_NAME_SCORE_WITHOUT_MISSING,
         FIELD_NAME_MISSING_KANJI_COUNT,
         FIELD_NAME_RELATED_KNOWN,
-        FIELD_NAME_RELATED_UNKNOWN
+        FIELD_NAME_RELATED_UNKNOWN,
+        FIELD_NAME_KANJI_MEANINGS
     ])
 
+    # Load dictionaries for HTML generation
+    from .dictionary import load_kanji_dictionnary_readings, load_kanji_meanings
+    kanji_readings = load_kanji_dictionnary_readings()
+    kanji_meanings = load_kanji_meanings()
+
     # Update fields for ALL cards (score/unlock for all, position only for new)
-    update_count = update_cards_score(cards, collection, new_card_ids=new_cids, dry_run=dry_run, available_fields=available_fields)
+    update_count = update_cards_score(cards, collection, kanji_meanings, kanji_readings, new_card_ids=new_cids, dry_run=dry_run, available_fields=available_fields)
 
     print("=" * 60)
     print(f"Total cards processed: {len(cards)}")
