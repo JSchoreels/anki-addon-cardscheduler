@@ -9,11 +9,11 @@ from cardscheduler import get_kanji_reading_pairs, load_kanji_dictionnary_readin
 def analyze_empty_brackets(kanji_pairs):
     """Analyze and report the percentage of empty brackets in kanji pairs."""
     total_pairs = len(kanji_pairs)
-    empty_bracket_pairs = [pair for pair in kanji_pairs if pair.endswith('[]')]
+    empty_bracket_pairs = [pair for pair in kanji_pairs if pair.endswith('[ ]')]
     empty_count = len(empty_bracket_pairs)
 
     if total_pairs == 0:
-        return 0.0, [], []
+        return 0.0, [ ], [ ]
 
     percentage = (empty_count / total_pairs) * 100
     return percentage, empty_bracket_pairs, list(kanji_pairs - set(empty_bracket_pairs))
@@ -64,7 +64,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '何故[なぜ]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'何[]', '故[]'})
+        self.assertSetEqual(pairs, {'何[ ]', '故[ ]'})
 
     def test_muccha(self):
         text = '無茶[むっちゃ]'
@@ -151,13 +151,13 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '行方[ゆくえ]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'行[ゆ]', '方[]'})
+        self.assertSetEqual(pairs, {'行[ゆ]', '方[ ]'})
 
     def test_yukuefumei(self):
         text = '行方不明[ゆくえふめい]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'不[]', '明[]', '行[ゆ]', '方[]'})
+        self.assertSetEqual(pairs, {'不[ ]', '明[ ]', '行[ゆ]', '方[ ]'})
 
     def test_amagumo(self):
         text = '雨雲[あまぐも]'
@@ -169,7 +169,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '美人局[つつもたせ]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'人[]', '局[]', '美[]'})
+        self.assertSetEqual(pairs, {'人[ ]', '局[ ]', '美[ ]'})
 
     def test_obidame(self):
         text = '帯止め[おびどめ]'
@@ -235,7 +235,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = '所謂[いわゆる]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'謂[いわゆる]', '所[]'})
+        self.assertSetEqual(pairs, {'謂[いわゆる]', '所[ ]'})
 
     def test_shimekiri(self):
         text = '締[し]め 切[き]り'
@@ -259,7 +259,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = 'といっても過言ではない[といってもかごんではない]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'過[]', '言[]'})
+        self.assertSetEqual(pairs, {'過[ ]', '言[ ]'})
 
     def test_onsha(self):
         text = '御社[おんしゃ]'
@@ -271,7 +271,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = 'ブドウ酒[ブドウしゅ]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'酒[]'})
+        self.assertSetEqual(pairs, {'酒[ ]'})
 
     def test_shitsuren(self):
         text = '失恋[しつれん]'
@@ -296,6 +296,36 @@ class TestKanjiReadingPairs(unittest.TestCase):
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
         self.assertSetEqual(pairs, {'失[しつ]', '敗[はい]'})
+
+    def test_kakusu(self):
+        text = '画数[かくすう]'
+        pairs = get_kanji_reading_pairs(text, self.kanji_readings)
+        print(f"Actual pairs for {text}: {pairs}")
+        self.assertSetEqual(pairs, {'画[かく]', '数[すう]'})
+
+    def test_tsure(self):
+        text = '連[つ]れ'
+        pairs = get_kanji_reading_pairs(text, self.kanji_readings)
+        print(f"Actual pairs for {text}: {pairs}")
+        self.assertSetEqual(pairs, {'連[つ]'})
+
+    def test_kueru(self):
+        text = '食[く]える'
+        pairs = get_kanji_reading_pairs(text, self.kanji_readings)
+        print(f"Actual pairs for {text}: {pairs}")
+        self.assertSetEqual(pairs, {'食[く]'})
+
+    def test_suukagetsu(self):
+        text = '数ヶ月[すうかげつ]'
+        pairs = get_kanji_reading_pairs(text, self.kanji_readings)
+        print(f"Actual pairs for {text}: {pairs}")
+        self.assertSetEqual(pairs, {})
+
+    def test_uwaki(self):
+        text = '浮気[うわき]'
+        pairs = get_kanji_reading_pairs(text, self.kanji_readings)
+        print(f"Actual pairs for {text}: {pairs}")
+        self.assertSetEqual(pairs, {'浮[うわ]', '気[き]'})
 
 
     def test_csv_analysis_and_output(self):
@@ -372,7 +402,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
                 f.write(f"# All Kanji-Reading Pairs from test.mapping.csv\n")
                 f.write(f"# Generated from {len(source_texts)} unique texts\n")
                 f.write(f"# Total pairs: {len(all_pairs)}\n")
-                f.write(f"# Empty brackets: {len([p for p in all_pairs if p.endswith('[]')])}\n\n")
+                f.write(f"# Empty brackets: {len([p for p in all_pairs if p.endswith('[ ]')])}\n\n")
 
                 for pair in sorted(all_pairs):
                     f.write(f"{pair}\n")
@@ -391,12 +421,12 @@ class TestKanjiReadingPairs(unittest.TestCase):
         print(f"Texts with empty readings: {texts_with_empty}/{len(source_texts)} ({texts_with_empty/len(source_texts)*100:.1f}%)")
         print(f"Unique pairs written to: {output_path}")
         print(f"Total unique pairs: {len(all_pairs)}")
-        print(f"Unique pairs with empty readings: {len([p for p in all_pairs if p.endswith('[]')])}")
+        print(f"Unique pairs with empty readings: {len([p for p in all_pairs if p.endswith('[ ]')])}")
 
         # Test assertion - ensure we have reasonable success rate
         success_rate = ((total_kanji - empty_kanji) / total_kanji * 100)
         print(f"Success rate: {success_rate:.2f}%")
-        self.assertGreaterEqual(success_rate, 98., f"Success rate {success_rate:.2f}% is too low")
+        self.assertGreaterEqual(success_rate, 98.75, f"Success rate {success_rate:.2f}% is too low")
 
 if __name__ == '__main__':
     unittest.main()

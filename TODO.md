@@ -1,0 +1,5 @@
+- [ ] Add a "Kanji Meanings" field filled with meaning of each kanji of the word
+  - Get the meaning from the main kanjidic file to the light one
+  - Add a new field CardScheduler.KanjiMeanings
+  - Fill it with the Kanji (colored by the same color as they are in the Known/Unknown field).
+- [ ] Related Cards : Sort all the one with one kanji first (grouped together), then all the combination. For example if there's ABC, first A, then B, then C, then AB, then BC, then AC, then ABC

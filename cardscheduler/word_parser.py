@@ -366,7 +366,7 @@ def split_reading_with_positions(kanji_word, reading, kanji_readings):
                     max_new_pairs_size = max(max_new_pairs_size, len(reading_option))
 
         if not best_actual_reading:
-            best_actual_reading = (kanji, '', '')
+            best_actual_reading = (kanji, ' ', ' ')
 
         pairs.append(best_actual_reading)
     return pairs
@@ -417,12 +417,12 @@ def get_kanji_reading_pairs(text, kanji_readings, dictionary_form=True):
                 # If splitting fails, add individual kanji with empty readings
                 unique_kanji = set(kanji_chars)  # Remove duplicates
                 for kanji in unique_kanji:
-                    kanji_pairs.add(f"{kanji}[]")
+                    kanji_pairs.add(f"{kanji}[ ]")
                     processed_kanji.add(kanji)
 
     # Handle standalone kanji without readings
     for char in text:
         if '\u4e00' <= char <= '\u9fff' and char not in processed_kanji:
-            kanji_pairs.add(f"{char}[]")
+            kanji_pairs.add(f"{char}[ ]")
 
     return kanji_pairs

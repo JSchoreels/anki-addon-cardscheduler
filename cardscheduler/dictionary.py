@@ -141,9 +141,15 @@ def load_kanji_dictionnary_readings():
                             if i_stem != verb_kanji_part:
                                 variations.append(i_stem)
                             # Intermediate form (remove final る)
-                            intermediate = verb_kanji_part + verb_kana_part[:-1]
-                            if intermediate not in variations:
-                                variations.append(intermediate)
+                            if len(verb_kana_part) >= 2:
+                                if verb_kana_part[-1] == 'る' and verb_kana_part[-2] in list('えけめねれてせげべいきみにりちしぎびじ'):
+                                    intermediate = verb_kanji_part + verb_kana_part[:-1]
+                                    if intermediate not in variations:
+                                        variations.append(intermediate)
+                            ## Kanji part only
+                            kanji_part_only = verb_kanji_part
+                            if kanji_part_only not in variations:
+                                variations.append(kanji_part_only)
                         if verb_kana_part.endswith('い'):
                             # Intermediate form (remove final い)
                             intermediate = verb_kanji_part + verb_kana_part[:-1]
@@ -171,15 +177,10 @@ def load_kanji_dictionnary_readings():
             reading_text = reading.text
             if reading_text:
                 variations = [reading_text]
-                rendaku_form = get_rendaku_form(reading_text)
-                if rendaku_form:
-                    variations.append(rendaku_form)
-                rendaku_form_p = get_rendaku_form_p(reading_text)
-                if rendaku_form_p:
-                    variations.append(rendaku_form_p)
-                sokuon_form = get_sokuon_form(reading_text)
-                if sokuon_form:
-                    variations.append(sokuon_form)
+                # rendaku_form = get_rendaku_form(reading_text)
+                variations.extend([get_rendaku_form(reading_text) for reading_text in variations if get_rendaku_form(reading_text)])
+                variations.extend([get_rendaku_form_p(reading_text) for reading_text in variations if get_rendaku_form_p(reading_text)])
+                variations.extend([get_sokuon_form(reading_text) for reading_text in variations if get_sokuon_form(reading_text)])
                 readings_map[reading_text] = variations
 
         kanji_readings[kanji] = readings_map
