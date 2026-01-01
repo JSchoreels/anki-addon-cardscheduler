@@ -1,0 +1,40 @@
+# Irregular readings (jukujikun) - word readings that don't follow normal kanji reading rules
+# Format: kanji_word reading kanji1_reading kanji2_reading ...
+#
+# Common irregular readings
+
+# Family terms
+お母さん かあさん か あ
+お父さん とうさん と う
+お祖母さん おばあさん お ば あ
+お祖父さん おじいさん お じ い
+お母様 かあさま か あ
+お父様 とうさま と う
+母 かあ か あ
+父 とう と う
+
+# Time/temporal
+今年 ことし こ とし
+今日 きょう きょう
+明日 あした あ した
+昨日 きのう き の う
+何時 いつ　い　つ
+何故　なぜ　な　ぜ
+何処　どこ　ど　こ
+如何　いか　い　か
+
+# Common words
+時計 とけい と けい
+一寸 ちょっと ちょっ と
+上手 うま う ま
+下手 へた へ た
+大人 おとな お と な
+一人 ひとり ひと り
+二人 ふたり ふた り
+一頻り ひとしきり ひと しき り
+浮気　うわき　うわ　き
+文字 もじ　も　じ
+
+# Phrases
+お行儀 おぎょうぎ お ぎょう ぎ
+けん引車 けんいんしゃ けん いん しゃ
