@@ -102,3 +102,54 @@ note.fields[field_index] = html  # Store in Anki
 - **html_formatter.py**: HTML generation, color assignment, styling
 - **dictionary.py**: Dictionary loading and data access
 - **word_parser.py**: Text parsing, kanji/reading extraction
+
+## Testing Practices
+
+### Always Run Full Test Suite After Changes
+
+**IMPORTANT:** After implementing each feature or making changes, always run the **complete** test suite to catch unintended side effects:
+
+```bash
+python -m unittest discover cardscheduler/tests
+```
+
+**Don't** only run tests you think are relevant. Changes in one module can affect others due to:
+- Shared data structures (CardInfo, dictionaries)
+- Architecture dependencies (data → presentation → storage)
+- Indirect function calls
+
+### Testing Framework
+- Use **unittest** framework (not pytest)
+- Test files: `cardscheduler/tests/test_*.py`
+- Run specific test: `python -m unittest cardscheduler.tests.test_module.TestClass.test_method`
+
+### Integration Tests with Anki Database
+
+Some tests require an actual Anki collection file:
+- `test_compute_score.TestComputeScore`
+- `test_input_modes_comparison.TestInputModesComparison`
+
+**Expected errors (don't stress about these):**
+- File not found: Collection file doesn't exist in test environment
+- Database locked: Anki application has the database open
+- Permission errors: Database file is in use
+
+These tests are integration tests that only run properly when:
+1. Anki is installed
+2. The collection file exists at the expected path
+3. Anki is NOT running (database not locked)
+
+**It's normal for these to fail in development environments.**
+
+### Example Workflow
+```bash
+# 1. Make changes to code
+# 2. Run full test suite
+python -m unittest discover cardscheduler/tests -v
+
+# 3. If failures, check if they're:
+#    - Expected (tests need updating for new architecture)
+#    - Unexpected (bug introduced by changes)
+
+# 4. Fix failures before considering feature complete
+```

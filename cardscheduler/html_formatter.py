@@ -76,8 +76,11 @@ def _format_related_words(related_cards_list, kanji_to_color, kanji_readings):
             if kanji in kanji_to_color
         }
 
+        # Normalize spacing before highlighting
+        normalized_text = _normalize_spacing(related_card.furigana_text)
+
         highlighted = _highlight_shared_kanji(
-            related_card.furigana_text,
+            normalized_text,
             shared_colors,
             kanji_readings
         )
@@ -85,6 +88,40 @@ def _format_related_words(related_cards_list, kanji_to_color, kanji_readings):
         html_parts.append(highlighted)
 
     return ',　 '.join(html_parts)
+
+
+def _normalize_spacing(furigana_text):
+    """Remove unnecessary spaces in furigana text.
+
+    Rules:
+    - Remove space between kana and kanji[reading] (e.g., "と 同[おな]じ" → "と同[おな]じ")
+    - Remove space between kanji[reading]+kana and kana (e.g., "同[おな]じ ように" → "同[おな]じように")
+    - Keep spaces between kanji[reading] and kanji[reading] (different words)
+
+    Args:
+        furigana_text: Text with potential unnecessary spaces
+
+    Returns:
+        Text with normalized spacing
+    """
+    if not furigana_text:
+        return furigana_text
+
+    # Pattern for kanji[reading] optionally followed by trailing kana
+    # E.g., "同[おな]じ" or just "同[おな]"
+    kanji_with_kana_pattern = r'[一-龯々]+\[[ぁ-ゖァ-ヺー]+\][ぁ-ゖァ-ヺー]*'
+    # Pattern for plain kana (hiragana/katakana)
+    kana_pattern = r'[ぁ-ゖァ-ヺー]+'
+
+    # Remove space between kana and kanji[reading]
+    # Example: "と 同[おな]じ" → "と同[おな]じ"
+    result = re.sub(rf'({kana_pattern})\s+({kanji_with_kana_pattern})', r'\1\2', furigana_text)
+
+    # Remove space between kanji[reading](+kana) and kana
+    # Example: "同[おな]じ ように" → "同[おな]じように"
+    result = re.sub(rf'({kanji_with_kana_pattern})\s+({kana_pattern})', r'\1\2', result)
+
+    return result
 
 
 def _highlight_shared_kanji(furigana_text, shared_kanji_colors, kanji_readings):
@@ -114,13 +151,38 @@ def _highlight_shared_kanji(furigana_text, shared_kanji_colors, kanji_readings):
         # Extract individual kanji from kanji_part
         kanji_chars = [c for c in kanji_part if '\u4e00' <= c <= '\u9fff']
 
-        if len(kanji_chars) == 1 and kanji_chars[0] in shared_kanji_colors:
-            # Single kanji that should be highlighted
-            color = shared_kanji_colors[kanji_chars[0]]
-            result.append(f'<span style="color: {color};">{kanji_part}[{reading_part}]</span>')
+        if len(kanji_chars) == 1:
+            # Single kanji - check if it should be highlighted
+            if kanji_chars[0] in shared_kanji_colors:
+                color = shared_kanji_colors[kanji_chars[0]]
+                result.append(f'<span style="color: {color};">{kanji_part}[{reading_part}]</span>')
+            else:
+                result.append(f'{kanji_part}[{reading_part}]')
         else:
-            # Multiple kanji or not in shared colors - keep as is
-            result.append(f'{kanji_part}[{reading_part}]')
+            # Multiple kanji - split into individual pairs and highlight each
+            from .word_parser import split_reading_with_positions
+            from .dictionary import expand_iteration_marks
+
+            # Expand iteration marks (々) before splitting
+            expanded_kanji = expand_iteration_marks(kanji_part)
+
+            # Get individual kanji[reading] pairs in order
+            reading_parts = split_reading_with_positions(expanded_kanji, reading_part, kanji_readings)
+
+            if reading_parts:
+                # Highlight each kanji that's in shared colors
+                pair_html = []
+                for kanji, actual_reading, dictionary_form in reading_parts:
+                    # Use actual reading from the text
+                    if kanji in shared_kanji_colors:
+                        color = shared_kanji_colors[kanji]
+                        pair_html.append(f'<span style="color: {color};">{kanji}[{actual_reading}]</span>')
+                    else:
+                        pair_html.append(f'{kanji}[{actual_reading}]')
+                result.append(''.join(pair_html))
+            else:
+                # Fallback if splitting failed
+                result.append(f'{kanji_part}[{reading_part}]')
 
         last_end = match.end()
 
@@ -159,7 +221,7 @@ def _format_kanji_meanings(furigana_text, kanji_to_color, kanji_meanings):
         meanings = kanji_meanings.get(kanji, [])
 
         if meanings:
-            meanings_text = ', '.join(meanings[:3])
+            meanings_text = ', '.join(meanings)
             html_parts.append(
                 f'<span style="color: {color};">{kanji}</span>: {meanings_text}'
             )
