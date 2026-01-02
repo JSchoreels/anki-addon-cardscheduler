@@ -90,28 +90,45 @@ def _format_related_words(related_cards_list, kanji_to_color, kanji_readings):
 def _highlight_shared_kanji(furigana_text, shared_kanji_colors, kanji_readings):
     """Highlight kanji in furigana text that are in shared_kanji_colors.
 
-    Adapted from scheduler.py's highlight_shared_kanji function.
+    Preserves the full furigana text including trailing kana.
     """
-    from .word_parser import get_kanji_reading_pairs
+    if not furigana_text or not shared_kanji_colors:
+        return furigana_text
 
-    pairs = get_kanji_reading_pairs(furigana_text, kanji_readings)
-    highlighted_pairs = []
+    # Parse the furigana text to extract all parts (kanji[reading] and plain kana)
+    # Pattern matches: kanji (or kanji+iteration marks) followed by [reading]
+    # Only matches kanji characters (not kana) before the bracket
+    pattern = r'([一-龯々]+)\[([ぁ-ゖァ-ヺー]+)\]'
 
-    for pair in pairs:
-        match = re.match(r'([^[]+)\[([^]]*)\]', pair)
-        if match:
-            kanji, reading = match.groups()
-            if kanji in shared_kanji_colors:
-                color = shared_kanji_colors[kanji]
-                highlighted_pairs.append(
-                    f'<span style="color: {color};">{kanji}[{reading}]</span>'
-                )
-            else:
-                highlighted_pairs.append(pair)
+    result = []
+    last_end = 0
+
+    for match in re.finditer(pattern, furigana_text):
+        # Add any plain text before this match (trailing kana, etc.)
+        if match.start() > last_end:
+            result.append(furigana_text[last_end:match.start()])
+
+        kanji_part = match.group(1)
+        reading_part = match.group(2)
+
+        # Extract individual kanji from kanji_part
+        kanji_chars = [c for c in kanji_part if '\u4e00' <= c <= '\u9fff']
+
+        if len(kanji_chars) == 1 and kanji_chars[0] in shared_kanji_colors:
+            # Single kanji that should be highlighted
+            color = shared_kanji_colors[kanji_chars[0]]
+            result.append(f'<span style="color: {color};">{kanji_part}[{reading_part}]</span>')
         else:
-            highlighted_pairs.append(pair)
+            # Multiple kanji or not in shared colors - keep as is
+            result.append(f'{kanji_part}[{reading_part}]')
 
-    return ''.join(highlighted_pairs)
+        last_end = match.end()
+
+    # Add any remaining text after the last match
+    if last_end < len(furigana_text):
+        result.append(furigana_text[last_end:])
+
+    return ''.join(result)
 
 
 def _format_kanji_meanings(furigana_text, kanji_to_color, kanji_meanings):

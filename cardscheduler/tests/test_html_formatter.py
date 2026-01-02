@@ -199,6 +199,49 @@ class TestHTMLFormatter(unittest.TestCase):
         self.assertIn('装[そう]', result)
         self.assertIn('置[ち]', result)
 
+    def test_trailing_kana_preserved(self):
+        """Test that trailing kana after kanji[reading] is preserved."""
+        card = CardInfo(1, '石[いし]ころ', 5.0)
+        kanji_to_color = {'石': 'lightgreen'}
+
+        result = _highlight_shared_kanji(card.furigana_text, kanji_to_color, self.kanji_readings)
+
+        # Should preserve the trailing "ころ"
+        self.assertIn('ころ', result, "Trailing kana 'ころ' should be preserved")
+        self.assertIn('石[いし]', result, "Kanji pair should be present")
+        # Check the full result
+        self.assertIn('<span style="color: lightgreen;">石[いし]</span>ころ', result,
+                      "Should have highlighted kanji followed by trailing kana")
+
+    def test_leading_kana_preserved(self):
+        """Test that leading kana before kanji[reading] is preserved."""
+        card = CardInfo(1, 'お石[いし]', 5.0)
+        kanji_to_color = {'石': 'lightgreen'}
+
+        result = _highlight_shared_kanji(card.furigana_text, kanji_to_color, self.kanji_readings)
+
+        # Should preserve the leading "お"
+        self.assertIn('お', result, "Leading kana 'お' should be preserved")
+        self.assertIn('石[いし]', result, "Kanji pair should be present")
+        # Check the full result
+        self.assertIn('お<span style="color: lightgreen;">石[いし]</span>', result,
+                      "Should have leading kana followed by highlighted kanji")
+
+    def test_mixed_kana_and_kanji(self):
+        """Test that mixed kana and kanji patterns are handled correctly."""
+        card = CardInfo(1, 'お石[いし]ころ', 5.0)
+        kanji_to_color = {'石': 'lightgreen'}
+
+        result = _highlight_shared_kanji(card.furigana_text, kanji_to_color, self.kanji_readings)
+
+        # Should preserve both leading and trailing kana
+        self.assertIn('お', result, "Leading kana 'お' should be preserved")
+        self.assertIn('ころ', result, "Trailing kana 'ころ' should be preserved")
+        self.assertIn('石[いし]', result, "Kanji pair should be present")
+        # Check the full result
+        self.assertIn('お<span style="color: lightgreen;">石[いし]</span>ころ', result,
+                      "Should have leading kana, highlighted kanji, and trailing kana")
+
 
 if __name__ == '__main__':
     unittest.main()
