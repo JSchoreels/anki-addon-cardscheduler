@@ -11,7 +11,7 @@ This module handles:
 import statistics
 from collections import defaultdict
 
-from .dictionary import load_kanji_dictionnary_readings
+from .dictionary import load_kanji_dictionnary_readings, extract_kanji_only
 from .word_parser import get_kanji_reading_pairs, count_kanji_in_text, count_kana_in_text
 
 EXAMPLE_LIMIT_BY_KANJIREADING_PAIR = 3
@@ -32,6 +32,9 @@ class CardInfo:
         self.position = 0  # Learning order position (1 = highest priority)
         self.related_cards_known = []  # List of (CardInfo, shared_kanji_set) tuples with stability > 0
         self.related_cards_unknown = []  # List of (CardInfo, shared_kanji_set) tuples with stability = 0
+        self.cards_with_kanji = 0  # Total cards sharing any kanji (visual familiarity)
+        self.cards_with_kanji_known = 0  # Known cards sharing any kanji
+        self.cards_with_kanji_unknown = 0  # Unknown cards sharing any kanji
 
     def __repr__(self):
         return f"CardInfo(id={self.card_id}, furigana='{self.furigana_text}', interval={self.stability}, score={self.score}, unknowns={self.unknown_kanji_readings}, unlock={self.unlock_potential}, median_increase={self.unlock_median_score_increase}, pos={self.position})"
@@ -72,6 +75,46 @@ def get_kanji_reading_to_matching_card(cards, kanji_readings):
                 kanji_reading_to_cards[pair] = KanjiReadingInfo()
             kanji_reading_to_cards[pair].matched_cards.add(card_info)
     return kanji_reading_to_cards
+
+
+def build_kanji_to_cards_mapping(cards):
+    """Build mapping from kanji characters to cards containing them.
+
+    Returns:
+        Dict[str, Set[CardInfo]]: Mapping from kanji char to cards
+    """
+    kanji_to_cards = defaultdict(set)
+    for card in cards:
+        kanji_chars = extract_kanji_only(card.furigana_text)
+        for kanji in kanji_chars:
+            kanji_to_cards[kanji].add(card)
+    return kanji_to_cards
+
+
+def compute_kanji_familiarity(cards, kanji_to_cards):
+    """Compute visual kanji familiarity metrics for each card.
+
+    For each card, count how many OTHER cards share any kanji character,
+    split by whether those cards are known (stability > 0) or unknown.
+    """
+    for card in cards:
+        kanji_chars = set(extract_kanji_only(card.furigana_text))
+        if not kanji_chars:
+            continue
+
+        # Collect all OTHER cards that share any kanji
+        related_cards = set()
+        for kanji in kanji_chars:
+            related_cards.update(kanji_to_cards.get(kanji, set()))
+        related_cards.discard(card)  # Exclude self
+
+        # Split by known/unknown (stability > 0 means known)
+        known_count = sum(1 for c in related_cards if c.stability > 0)
+        unknown_count = len(related_cards) - known_count
+
+        card.cards_with_kanji_known = known_count
+        card.cards_with_kanji_unknown = unknown_count
+        card.cards_with_kanji = known_count + unknown_count
 
 
 def update_kanji_reading_to_cards_with_max_weighted_interval(kanji_reading_to_cards, kanji_readings):
@@ -325,6 +368,10 @@ def compute_scores(cards):
 
     update_kanji_reading_to_cards_with_max_weighted_interval(kanji_reading_to_cards, kanji_readings)
 
+    # Compute visual kanji familiarity metrics
+    kanji_to_cards = build_kanji_to_cards_mapping(cards)
+    compute_kanji_familiarity(cards, kanji_to_cards)
+
     # Step 2: Compute score for each card (simplified)
     for card_info in cards:
         if not card_info.furigana_text:
@@ -423,11 +470,13 @@ def assign_positions_to_new_cards(cards, new_card_ids):
     Sorting priority for cards with score = 0 (have unknown kanji):
     1. Score (descending) - always 0 for these cards
     2. Unlock potential (descending) - more cards would be fully unlocked by learning this
-    3. Unlock median score increase (descending) - unlocked cards would have higher scores
-    4. Missing kanji count (ascending) - fewer missing kanji
-    5. Kanji count (ascending) - fewer kanji = simpler word
-    6. Kana count (ascending) - fewer kana = shorter word
-    7. Score without missing (ascending) - lower score = needs more help (final tiebreaker)
+    3. Cards with kanji known (descending) - visual familiarity with kanji from known cards
+    4. Cards with kanji total (descending) - total kanji prevalence as tiebreaker
+    5. Unlock median score increase (descending) - unlocked cards would have higher scores
+    6. Missing kanji count (ascending) - fewer missing kanji
+    7. Kanji count (ascending) - fewer kanji = simpler word
+    8. Kana count (ascending) - fewer kana = shorter word
+    9. Score without missing (ascending) - lower score = needs more help (final tiebreaker)
 
     Sorting priority for cards with score > 0 (all kanji known):
     1. Score (descending) - higher score = more familiar = learn first
@@ -449,11 +498,13 @@ def assign_positions_to_new_cards(cards, new_card_ids):
     sorted_new_cards = sorted(new_cards, key=lambda c: (
         -c.score,                              # 1. Higher score first (more familiar)
         -c.unlock_potential,                   # 2. More cards fully unlocked (only matters when score=0)
-        -c.unlock_median_score_increase,       # 3. Higher value unlocks (only matters when score=0)
-        c.missing_kanji_count,                 # 4. Fewer missing kanji (only matters when score=0)
-        count_kanji_in_text(c.furigana_text),  # 5. Fewer kanji (simpler) - applies to all cards
-        count_kana_in_text(c.furigana_text),   # 6. Fewer kana (shorter) - applies to all cards
-        c.score_without_missing                # 7. Lower score needs more help (only matters when score=0)
+        -c.cards_with_kanji_known,             # 3. Visual familiarity (kanji seen in known cards)
+        -c.cards_with_kanji,                   # 4. Total kanji prevalence as tiebreaker
+        -c.unlock_median_score_increase,       # 5. Higher value unlocks (only matters when score=0)
+        c.missing_kanji_count,                 # 6. Fewer missing kanji (only matters when score=0)
+        count_kanji_in_text(c.furigana_text),  # 7. Fewer kanji (simpler) - applies to all cards
+        count_kana_in_text(c.furigana_text),   # 8. Fewer kana (shorter) - applies to all cards
+        c.score_without_missing                # 9. Lower score needs more help (only matters when score=0)
     ))
 
     # Assign positions only to new cards

@@ -32,6 +32,9 @@ from .config import (
     FIELD_NAME_RELATED_KNOWN,
     FIELD_NAME_RELATED_UNKNOWN,
     FIELD_NAME_KANJI_MEANINGS,
+    FIELD_NAME_CARDS_WITH_KANJI,
+    FIELD_NAME_CARDS_WITH_KANJI_KNOWN,
+    FIELD_NAME_CARDS_WITH_KANJI_UNKNOWN,
     SIMULATE_ZERO_STABILITY,
     INPUT_MODE,
     INPUT_MODE_SINGLE_FIELD,
@@ -261,6 +264,9 @@ def update_card_fields(card_info, collection,
                        missing_kanji_count_field=FIELD_NAME_MISSING_KANJI_COUNT,
                        related_known_field=FIELD_NAME_RELATED_KNOWN,
                        related_unknown_field=FIELD_NAME_RELATED_UNKNOWN,
+                       cards_with_kanji_field=FIELD_NAME_CARDS_WITH_KANJI,
+                       cards_with_kanji_known_field=FIELD_NAME_CARDS_WITH_KANJI_KNOWN,
+                       cards_with_kanji_unknown_field=FIELD_NAME_CARDS_WITH_KANJI_UNKNOWN,
                        update_position=True,
                        available_fields=None):
     """
@@ -332,6 +338,17 @@ def update_card_fields(card_info, collection,
     # Update missing kanji count field (for all cards)
     if missing_kanji_count_field in available_fields and missing_kanji_count_field in field_indices:
         note.fields[field_indices[missing_kanji_count_field]] = str(card_info.missing_kanji_count)
+        updated = True
+
+    # Update cards with kanji fields (visual familiarity metrics)
+    if cards_with_kanji_field in available_fields and cards_with_kanji_field in field_indices:
+        note.fields[field_indices[cards_with_kanji_field]] = str(card_info.cards_with_kanji)
+        updated = True
+    if cards_with_kanji_known_field in available_fields and cards_with_kanji_known_field in field_indices:
+        note.fields[field_indices[cards_with_kanji_known_field]] = str(card_info.cards_with_kanji_known)
+        updated = True
+    if cards_with_kanji_unknown_field in available_fields and cards_with_kanji_unknown_field in field_indices:
+        note.fields[field_indices[cards_with_kanji_unknown_field]] = str(card_info.cards_with_kanji_unknown)
         updated = True
 
     # Update related known words field (for all cards)
@@ -443,7 +460,10 @@ def process_collection(collection=None, dry_run=False, reposition=False):
         FIELD_NAME_MISSING_KANJI_COUNT,
         FIELD_NAME_RELATED_KNOWN,
         FIELD_NAME_RELATED_UNKNOWN,
-        FIELD_NAME_KANJI_MEANINGS
+        FIELD_NAME_KANJI_MEANINGS,
+        FIELD_NAME_CARDS_WITH_KANJI,
+        FIELD_NAME_CARDS_WITH_KANJI_KNOWN,
+        FIELD_NAME_CARDS_WITH_KANJI_UNKNOWN
     ])
 
     # Load dictionaries for HTML generation
@@ -464,6 +484,9 @@ def process_collection(collection=None, dry_run=False, reposition=False):
     print(f"  - {FIELD_NAME_UNLOCK_MEDIAN_SCORE_INCREASE}: Unlock median score increase (all cards)")
     print(f"  - {FIELD_NAME_SCORE_WITHOUT_MISSING}: Score without missing kanji (all cards)")
     print(f"  - {FIELD_NAME_MISSING_KANJI_COUNT}: Missing kanji count (all cards)")
+    print(f"  - {FIELD_NAME_CARDS_WITH_KANJI}: Cards sharing kanji (all cards)")
+    print(f"  - {FIELD_NAME_CARDS_WITH_KANJI_KNOWN}: Known cards sharing kanji (all cards)")
+    print(f"  - {FIELD_NAME_CARDS_WITH_KANJI_UNKNOWN}: Unknown cards sharing kanji (all cards)")
     print(f"  - {FIELD_NAME_POSITION}: Learning order position (new cards only)")
 
     # Reposition cards if requested (only new cards)
@@ -479,6 +502,9 @@ def process_collection(collection=None, dry_run=False, reposition=False):
         message += f"  - {FIELD_NAME_UNLOCK_MEDIAN_SCORE_INCREASE} (all cards)\n"
         message += f"  - {FIELD_NAME_SCORE_WITHOUT_MISSING} (all cards)\n"
         message += f"  - {FIELD_NAME_MISSING_KANJI_COUNT} (all cards)\n"
+        message += f"  - {FIELD_NAME_CARDS_WITH_KANJI} (all cards)\n"
+        message += f"  - {FIELD_NAME_CARDS_WITH_KANJI_KNOWN} (all cards)\n"
+        message += f"  - {FIELD_NAME_CARDS_WITH_KANJI_UNKNOWN} (all cards)\n"
         message += f"  - {FIELD_NAME_POSITION} ({len(new_cids)} new cards only)"
         if reposition and reposition_count > 0:
             message += f"\n\nRepositioned {reposition_count} new cards"

@@ -12,6 +12,9 @@ FIELD_NAME_MISSING_KANJI_COUNT = "CardScheduler.MissingKanjiCount"
 FIELD_NAME_RELATED_KNOWN = "CardScheduler.Related.Known"
 FIELD_NAME_RELATED_UNKNOWN = "CardScheduler.Related.Unknown"
 FIELD_NAME_KANJI_MEANINGS = "CardScheduler.KanjiMeanings"
+FIELD_NAME_CARDS_WITH_KANJI = "CardScheduler.CardsWithKanji"
+FIELD_NAME_CARDS_WITH_KANJI_KNOWN = "CardScheduler.CardsWithKanjiKnown"
+FIELD_NAME_CARDS_WITH_KANJI_UNKNOWN = "CardScheduler.CardsWithKanjiUnknown"
 
 # Configuration: Simulation mode
 # When True, all cards are treated as having zero stability (simulates starting from scratch)
