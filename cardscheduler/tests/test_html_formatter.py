@@ -302,6 +302,54 @@ class TestHTMLFormatter(unittest.TestCase):
         # Should NOT have scrambled order like 態擬語
         self.assertNotIn('態[たい]擬[ぎ]', result, "Kanji should not be in scrambled order")
 
+    def test_spacing_before_furigana_after_kana(self):
+        """Test that space is added before furigana when preceded by kana.
+
+        Example: 溶[と]け合[あ]う where 溶 is highlighted
+        Should become: <span>溶[と]</span>け 合[あ]う (regular space before 合[あ])
+        NOT: <span>溶[と]</span>け合[あ]う (no space)
+        """
+        card = CardInfo(1, '溶[と]け合[あ]う', 5.0)
+        kanji_to_color = {'溶': 'lightgreen'}
+
+        result = _highlight_shared_kanji(card.furigana_text, kanji_to_color, self.kanji_readings)
+
+        # Should have regular space before 合[あ] (after the kana け)
+        self.assertIn('け 合[あ]', result, "Should have regular space before 合[あ]")
+
+        # Should NOT have space after </span> before け
+        self.assertIn('</span>け', result, "Should not have space after </span>")
+        self.assertNotIn('</span> け', result, "Should not have space between </span> and け")
+
+    def test_reading_order_preserved_when_cant_split(self):
+        """Test that reading order is preserved when kanji can't be split properly.
+
+        When some kanji readings can't be found in the dictionary, keep the full
+        compound with the full reading instead of scrambling the order.
+        Example: お祖母[ばあ]さん should keep 祖母[ばあ], NOT split to 祖[あ]母[ば]
+        which would scramble the reading from "baa" to "aba".
+        """
+        # Test case from user: お祖母さん with reading ばあ
+        card = CardInfo(1, 'お祖母[ばあ]さん', 5.0)
+        kanji_to_color = {'祖': 'lightgreen', '母': 'lightblue'}
+
+        result = _highlight_shared_kanji(card.furigana_text, kanji_to_color, self.kanji_readings)
+
+        # Should not have empty readings
+        self.assertNotIn('[ ]', result, "Should not have empty readings")
+
+        # Should preserve the full reading ばあ (not split it incorrectly)
+        self.assertIn('ばあ', result, "Full reading ばあ should be preserved")
+
+        # Should NOT have scrambled readings like あ before ば
+        self.assertNotIn('祖[あ]', result, "Should not have 祖[あ] - this scrambles the order")
+
+        # Should have the compound 祖母 with full reading
+        self.assertIn('祖母[ばあ]', result, "Should keep compound 祖母[ばあ]")
+
+        # Verify the compound is highlighted (since both 祖 and 母 are in shared colors)
+        self.assertIn('<span style="color:', result, "Compound should be highlighted")
+
 
 class TestSpacingNormalization(unittest.TestCase):
     """Test spacing normalization in related words."""

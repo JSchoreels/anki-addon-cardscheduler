@@ -124,6 +124,89 @@ def _normalize_spacing(furigana_text):
     return result
 
 
+def _add_spacing_before_furigana(text):
+    """Add regular space before furigana elements when needed.
+
+    Rule: Add space ( ) before kanji[reading] pattern if the previous character is:
+    - Japanese (kana or kanji)
+    - NOT a delimiter (<, >, space, etc.)
+    - NOT a non-Japanese character (Latin letters, numbers, etc.)
+
+    Example: '</span>け合[あ]う' → '</span>け 合[あ]う'
+    """
+    if not text:
+        return text
+
+    # Pattern to match furigana elements: kanji[reading]
+    # Only match kanji (not kana) before the bracket
+    pattern = r'([一-龯々]+)\[([ぁ-ゖァ-ヺー]+)\]'
+
+    result = []
+    last_end = 0
+
+    for match in re.finditer(pattern, text):
+        # Get text before this furigana element
+        before_text = text[last_end:match.start()]
+        result.append(before_text)
+
+        # Check the character immediately before this furigana element
+        if before_text:
+            last_char = before_text[-1]
+
+            # Check if we need to add a space
+            # Add space if last char is Japanese (kana/kanji) and not a delimiter
+            is_kana = '\u3040' <= last_char <= '\u30ff'  # Hiragana or Katakana
+            is_kanji = '\u4e00' <= last_char <= '\u9fff'  # Kanji
+            is_delimiter = last_char in '<>　 '  # Common delimiters
+            is_japanese = is_kana or is_kanji
+
+            if is_japanese and not is_delimiter:
+                result.append(' ')  # Add regular space
+
+        # Add the furigana element itself
+        result.append(match.group(0))
+        last_end = match.end()
+
+    # Add any remaining text
+    if last_end < len(text):
+        result.append(text[last_end:])
+
+    return ''.join(result)
+
+
+def _collapse_empty_readings_to_compound(reading_parts, full_reading):
+    """Collapse kanji groups with empty readings into compound with full reading.
+
+    When some kanji readings can't be found, instead of showing [ ] or scrambling
+    the reading order, keep the full kanji compound with the full reading.
+    This preserves the correct reading order.
+
+    Example: 祖母[ばあ] where 祖 can't be matched → keep as 祖母[ばあ]
+    instead of trying to split into 祖[?]母[ば] which would scramble the order.
+
+    Args:
+        reading_parts: List of (kanji, actual_reading, dictionary_form) tuples
+        full_reading: The complete reading for the word
+
+    Returns:
+        If any empty readings: single tuple (all_kanji, full_reading, None)
+        Otherwise: original reading_parts list
+    """
+    if not reading_parts:
+        return reading_parts
+
+    # Check if any readings are empty (space or empty string)
+    has_empty = any(actual_reading.strip() == ""
+                    for kanji, actual_reading, dictionary_form in reading_parts)
+
+    if has_empty:
+        # Collapse all kanji into a single compound with full reading
+        all_kanji = ''.join(kanji for kanji, _, _ in reading_parts)
+        return [(all_kanji, full_reading, None)]
+
+    return reading_parts
+
+
 def _highlight_shared_kanji(furigana_text, shared_kanji_colors, kanji_readings):
     """Highlight kanji in furigana text that are in shared_kanji_colors.
 
@@ -170,15 +253,31 @@ def _highlight_shared_kanji(furigana_text, shared_kanji_colors, kanji_readings):
             reading_parts = split_reading_with_positions(expanded_kanji, reading_part, kanji_readings)
 
             if reading_parts:
+                # If any readings are empty, collapse to compound to preserve reading order
+                reading_parts = _collapse_empty_readings_to_compound(reading_parts, reading_part)
+
                 # Highlight each kanji that's in shared colors
                 pair_html = []
                 for kanji, actual_reading, dictionary_form in reading_parts:
-                    # Use actual reading from the text
-                    if kanji in shared_kanji_colors:
-                        color = shared_kanji_colors[kanji]
-                        pair_html.append(f'<span style="color: {color};">{kanji}[{actual_reading}]</span>')
+                    # Check if this is a compound (multiple kanji in single entry)
+                    if len(kanji) > 1:
+                        # Compound - check if any kanji in it are in shared colors
+                        compound_kanji = [k for k in kanji if '\u4e00' <= k <= '\u9fff']
+                        matching_kanji = [k for k in compound_kanji if k in shared_kanji_colors]
+
+                        if matching_kanji:
+                            # Use color of first matching kanji for the compound
+                            color = shared_kanji_colors[matching_kanji[0]]
+                            pair_html.append(f'<span style="color: {color};">{kanji}[{actual_reading}]</span>')
+                        else:
+                            pair_html.append(f'{kanji}[{actual_reading}]')
                     else:
-                        pair_html.append(f'{kanji}[{actual_reading}]')
+                        # Single kanji - use actual reading from the text
+                        if kanji in shared_kanji_colors:
+                            color = shared_kanji_colors[kanji]
+                            pair_html.append(f'<span style="color: {color};">{kanji}[{actual_reading}]</span>')
+                        else:
+                            pair_html.append(f'{kanji}[{actual_reading}]')
                 result.append(''.join(pair_html))
             else:
                 # Fallback if splitting failed
@@ -190,7 +289,11 @@ def _highlight_shared_kanji(furigana_text, shared_kanji_colors, kanji_readings):
     if last_end < len(furigana_text):
         result.append(furigana_text[last_end:])
 
-    return ''.join(result)
+    # Join and add spacing before furigana elements when needed
+    highlighted = ''.join(result)
+    highlighted = _add_spacing_before_furigana(highlighted)
+
+    return highlighted
 
 
 def _format_kanji_meanings(furigana_text, kanji_to_color, kanji_meanings):
