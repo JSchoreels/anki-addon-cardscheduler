@@ -2,6 +2,7 @@ import unittest
 
 from cardscheduler import (
     CardInfo,
+    build_card_to_pairs,
     compute_scores,
     get_kanji_reading_to_matching_card,
     update_kanji_reading_to_cards_with_max_weighted_interval,
@@ -149,19 +150,19 @@ class TestUnlockPotential(unittest.TestCase):
             CardInfo(3, "校長[こうちょう]", 10),
         ]
 
-        kanji_reading_to_cards = get_kanji_reading_to_matching_card(cards, self.kanji_readings)
-        update_kanji_reading_to_cards_with_max_weighted_interval(kanji_reading_to_cards, self.kanji_readings)
+        card_to_pairs = build_card_to_pairs(cards, self.kanji_readings)
+        kanji_reading_to_cards = get_kanji_reading_to_matching_card(cards, card_to_pairs)
+        update_kanji_reading_to_cards_with_max_weighted_interval(kanji_reading_to_cards, card_to_pairs)
 
         # Compute scores first
         for card_info in cards:
-            if not card_info.furigana_text:
+            pairs = card_to_pairs[card_info.card_id]
+            if not pairs:
                 card_info.score = 0
                 continue
 
-            kanji_reading_pairs = get_kanji_reading_pairs(card_info.furigana_text, self.kanji_readings)
-
             kanji_to_intervals = defaultdict(list)
-            for pair in kanji_reading_pairs:
+            for pair in pairs:
                 if pair in kanji_reading_to_cards:
                     kanji = pair.split('[')[0]
                     interval = kanji_reading_to_cards[pair].max_weighted_interval
@@ -174,7 +175,7 @@ class TestUnlockPotential(unittest.TestCase):
             card_info.score = min(max_intervals_per_kanji) if max_intervals_per_kanji else 0
 
         # Now compute unlock potential
-        compute_unlock_potential(kanji_reading_to_cards, self.kanji_readings, cards)
+        compute_unlock_potential(kanji_reading_to_cards, card_to_pairs)
 
         # Check that 学[がく] has unlock potential >= 1 (unlocks 学校)
         gaku_pair = "学[がく]"

@@ -17,6 +17,7 @@ from .anki_interface import process_collection, load_cards
 from .scheduler import (
     CardInfo,
     KanjiReadingInfo,
+    build_card_to_pairs,
     compute_scores,
     assign_positions_to_new_cards,
     get_kanji_reading_to_matching_card,
@@ -42,6 +43,7 @@ __all__ = [
     'load_cards',
     'CardInfo',
     'KanjiReadingInfo',
+    'build_card_to_pairs',
     'compute_scores',
     'assign_positions_to_new_cards',
     'get_kanji_reading_to_matching_card',

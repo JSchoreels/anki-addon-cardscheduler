@@ -350,6 +350,49 @@ class TestHTMLFormatter(unittest.TestCase):
         # Verify the compound is highlighted (since both 祖 and 母 are in shared colors)
         self.assertIn('<span style="color:', result, "Compound should be highlighted")
 
+    def test_compound_colored_with_first_kanji_color_when_reading_not_splittable(self):
+        """Test that compound kanji uses first matching kanji's color when reading can't be split.
+
+        When a kanji's reading in the compound is not found in the dictionary,
+        the system collapses to the full compound and uses the first matching kanji's color.
+
+        Example: 景色[けしき] - 景 only has けい in the dictionary, not け.
+        So the compound can't be split into 景[け] + 色[しき].
+        The whole 景色[けしき] gets colored with 景's color (from the current card).
+        """
+        card = CardInfo(1, '景色[けしき]', 5.0)
+        kanji_to_color = {'景': 'lightgreen'}  # 景 is shared (e.g., from 景気[けいき] on current card)
+
+        result = _highlight_shared_kanji(card.furigana_text, kanji_to_color, self.kanji_readings)
+
+        # Should keep the compound with full reading (not split it)
+        self.assertIn('景色[けしき]', result, "Should keep compound 景色[けしき]")
+
+        # The compound should be highlighted with 景's color
+        self.assertIn('<span style="color: lightgreen;">景色[けしき]</span>', result,
+                      "Compound should be colored with first matching kanji's color (景)")
+
+        # Should NOT have incorrectly split readings
+        self.assertNotIn('景[け]', result, "Should not have split 景[け]")
+        self.assertNotIn('色[しき]', result, "Should not have split 色[しき]")
+
+    def test_compound_colored_when_only_second_kanji_shared(self):
+        """Test compound coloring when only the second kanji is in shared colors.
+
+        Example: 景色[けしき] where only 色 is shared.
+        """
+        card = CardInfo(1, '景色[けしき]', 5.0)
+        kanji_to_color = {'色': 'lightblue'}  # Only 色 is shared
+
+        result = _highlight_shared_kanji(card.furigana_text, kanji_to_color, self.kanji_readings)
+
+        # Should keep the compound
+        self.assertIn('景色[けしき]', result, "Should keep compound 景色[けしき]")
+
+        # The compound should be highlighted with 色's color (the first matching kanji in the compound)
+        self.assertIn('<span style="color: lightblue;">景色[けしき]</span>', result,
+                      "Compound should be colored with matching kanji's color (色)")
+
 
 class TestSpacingNormalization(unittest.TestCase):
     """Test spacing normalization in related words."""

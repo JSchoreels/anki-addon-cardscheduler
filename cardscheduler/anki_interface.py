@@ -207,10 +207,11 @@ def print_scores(cards, new_card_ids=None):
     # Print new cards
     for card in sorted_new_cards:
         if card.score > 0:
-            print(f"Pos: {card.position:5d} | Score: {card.score:8.1f} | ID: {card.furigana_text:24s}")
+            print(f"Pos: {card.position:5d} | Score: {card.score:8.1f} | ID: {card.furigana_text:24s} | "
+                  f"Pctl: {card.percentile_rank:5.1f}%")
         else:
             print(f"Pos: {card.position:5d} | Score: {card.score:8.1f} | ID: {card.furigana_text:24s} | "
-                  f"Unknown: {card.unknown_kanji_readings} | Unlock: {card.unlock_potential:3d} | "
+                  f"Pctl: {card.percentile_rank:5.1f}% | Unlock: {card.unlock_potential:3d} | "
                   f"UnlockMedian: {card.unlock_median_score_increase:6.1f} | "
                   f"ScoreNoMissing: {card.score_without_missing:6.1f} | Missing: {card.missing_kanji_count}")
 
