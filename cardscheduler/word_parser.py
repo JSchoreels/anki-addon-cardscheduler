@@ -198,24 +198,6 @@ def split_reading_with_positions(kanji_word, reading, kanji_readings):
                     max_new_pairs_size = len(extended_reading)
                     last_extended_reading_matched = extended_reading
 
-        # # Only append the best match (if found)
-        # exact_match_found = False
-        # if best_base_reading:
-        #     # Extract only the kanji reading part (before the dot in base_reading like "こ.める")
-        #     # The actual reading from the card, limited to the kanji part length
-        #     if '.' in best_base_reading:
-        #         kanji_reading_part = best_base_reading.split('.')[0]
-        #         actual_reading = remaining_reading[:len(kanji_reading_part)]
-        #     else:
-        #         # No okurigana, use the full match
-        #         actual_reading = remaining_reading[:best_match_length]
-        #
-        #     # Store as tuple: (kanji, actual_reading, base_reading)
-        #     best_actual_reading = (kanji, actual_reading, best_base_reading)
-        #     max_new_pairs_size = best_match_length
-        #     exact_match_found = True
-        #
-        # Try fuzzy matching with length restrictions
         if not best_actual_reading:
             for reading_option in possible_readings:
                 if (fuzzy := fuzzy_reading_match(reading_option, remaining_reading)):

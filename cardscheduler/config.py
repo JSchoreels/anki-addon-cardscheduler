@@ -1,35 +1,94 @@
 """
-Configuration constants for the CardScheduler addon.
+Configuration for the CardScheduler addon.
+
+Loads settings from config.json if present, otherwise uses defaults.
+Place config.json in the addon folder to customize settings.
 """
 
-# Configuration: Customizable field names
-FIELD_NAME_POSITION = "CardScheduler.Position"
-FIELD_NAME_SCORE = "CardScheduler.Score"
-FIELD_NAME_UNLOCK_POTENTIAL = "CardScheduler.UnlockPotential"
-FIELD_NAME_UNLOCK_MEDIAN_SCORE_INCREASE = "CardScheduler.UnlockMedianScoreIncrease"
-FIELD_NAME_SCORE_WITHOUT_MISSING = "CardScheduler.ScoreWithoutMissing"
-FIELD_NAME_MISSING_KANJI_COUNT = "CardScheduler.MissingKanjiCount"
-FIELD_NAME_RELATED_KNOWN = "CardScheduler.Related.Known"
-FIELD_NAME_RELATED_UNKNOWN = "CardScheduler.Related.Unknown"
-FIELD_NAME_KANJI_MEANINGS = "CardScheduler.KanjiMeanings"
-FIELD_NAME_CARDS_WITH_KANJI = "CardScheduler.CardsWithKanji"
-FIELD_NAME_CARDS_WITH_KANJI_KNOWN = "CardScheduler.CardsWithKanjiKnown"
-FIELD_NAME_CARDS_WITH_KANJI_UNKNOWN = "CardScheduler.CardsWithKanjiUnknown"
+import json
+import os
 
-# Configuration: Simulation mode
-# When True, all cards are treated as having zero stability (simulates starting from scratch)
-# This shows what the optimal learning order would be if you had no progress
-SIMULATE_ZERO_STABILITY = False
+# Default configuration
+_DEFAULTS = {
+    # Deck to process
+    "deck_name": "Japan::1. Vocabulary",
 
-# Configuration: Input field format
-# Mode 1: Single field containing kanji with furigana (e.g., "頭[あたま]が 痛[いた]い")
+    # Output field names
+    "field_names": {
+        "position": "CardScheduler.Position",
+        "score": "CardScheduler.Score",
+        "unlock_potential": "CardScheduler.UnlockPotential",
+        "unlock_median_score_increase": "CardScheduler.UnlockMedianScoreIncrease",
+        "score_without_missing": "CardScheduler.ScoreWithoutMissing",
+        "missing_kanji_count": "CardScheduler.MissingKanjiCount",
+        "related_known": "CardScheduler.Related.Known",
+        "related_unknown": "CardScheduler.Related.Unknown",
+        "kanji_meanings": "CardScheduler.KanjiMeanings",
+        "cards_with_kanji": "CardScheduler.CardsWithKanji",
+        "cards_with_kanji_known": "CardScheduler.CardsWithKanjiKnown",
+        "cards_with_kanji_unknown": "CardScheduler.CardsWithKanjiUnknown",
+    },
+
+    # Input mode: "single" or "two"
+    "input_mode": "two",
+
+    # Input field names
+    "input_fields": {
+        "single": "ID",
+        "kanji": "Front",
+        "reading": "Reading",
+    },
+
+    # Simulation mode (treat all cards as new)
+    "simulate_zero_stability": False,
+}
+
+
+def _load_config():
+    """Load config from config.json, falling back to defaults."""
+    config_path = os.path.join(os.path.dirname(__file__), "config.json")
+
+    config = _DEFAULTS.copy()
+
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                user_config = json.load(f)
+            # Merge user config into defaults (shallow merge for nested dicts)
+            for key, value in user_config.items():
+                if key in config and isinstance(config[key], dict) and isinstance(value, dict):
+                    config[key] = {**config[key], **value}
+                else:
+                    config[key] = value
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"CardScheduler: Error loading config.json: {e}")
+
+    return config
+
+
+_config = _load_config()
+
+# Expose config values as module-level constants for backwards compatibility
+DECK_NAME = _config["deck_name"]
+
+FIELD_NAME_POSITION = _config["field_names"]["position"]
+FIELD_NAME_SCORE = _config["field_names"]["score"]
+FIELD_NAME_UNLOCK_POTENTIAL = _config["field_names"]["unlock_potential"]
+FIELD_NAME_UNLOCK_MEDIAN_SCORE_INCREASE = _config["field_names"]["unlock_median_score_increase"]
+FIELD_NAME_SCORE_WITHOUT_MISSING = _config["field_names"]["score_without_missing"]
+FIELD_NAME_MISSING_KANJI_COUNT = _config["field_names"]["missing_kanji_count"]
+FIELD_NAME_RELATED_KNOWN = _config["field_names"]["related_known"]
+FIELD_NAME_RELATED_UNKNOWN = _config["field_names"]["related_unknown"]
+FIELD_NAME_KANJI_MEANINGS = _config["field_names"]["kanji_meanings"]
+FIELD_NAME_CARDS_WITH_KANJI = _config["field_names"]["cards_with_kanji"]
+FIELD_NAME_CARDS_WITH_KANJI_KNOWN = _config["field_names"]["cards_with_kanji_known"]
+FIELD_NAME_CARDS_WITH_KANJI_UNKNOWN = _config["field_names"]["cards_with_kanji_unknown"]
+
 INPUT_MODE_SINGLE_FIELD = "single"
-INPUT_FIELD_SINGLE = "ID"  # Field name for single-field mode
-
-# Mode 2: Two fields - one with kanji, one with reading (e.g., "頭が痛い" + "あたまがいたい")
 INPUT_MODE_TWO_FIELDS = "two"
-INPUT_FIELD_KANJI = "Front"  # Field name for kanji
-INPUT_FIELD_READING = "Reading"  # Field name for reading
+INPUT_MODE = _config["input_mode"]
+INPUT_FIELD_SINGLE = _config["input_fields"]["single"]
+INPUT_FIELD_KANJI = _config["input_fields"]["kanji"]
+INPUT_FIELD_READING = _config["input_fields"]["reading"]
 
-# Active mode: Set to INPUT_MODE_SINGLE_FIELD or INPUT_MODE_TWO_FIELDS
-INPUT_MODE = INPUT_MODE_TWO_FIELDS
+SIMULATE_ZERO_STABILITY = _config["simulate_zero_stability"]

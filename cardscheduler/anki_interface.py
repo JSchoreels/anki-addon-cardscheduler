@@ -11,6 +11,8 @@ This module handles:
 - Main processing entry point
 """
 
+import math
+
 try:
     from aqt import mw
     from aqt.utils import showInfo
@@ -23,6 +25,7 @@ except ImportError:
 from .scheduler import CardInfo, compute_scores, assign_positions_to_new_cards
 from .word_parser import convert_two_fields_to_furigana
 from .config import (
+    DECK_NAME,
     FIELD_NAME_POSITION,
     FIELD_NAME_SCORE,
     FIELD_NAME_UNLOCK_POTENTIAL,
@@ -44,6 +47,18 @@ from .config import (
     INPUT_FIELD_READING
 )
 from .html_formatter import format_card_html
+
+
+def format_score_for_note(score):
+    """Format score for Anki note display with 3 decimals for non-zero values."""
+    if score == 0:
+        return "0.000"
+
+    # Keep tiny non-zero values visible (e.g., 0.0001 -> 0.001)
+    rounded_up = math.ceil(score * 1000) / 1000
+    if rounded_up == 0:
+        rounded_up = 0.001
+    return f"{rounded_up:.3f}"
 
 
 def get_field_value(note, field_name):
@@ -105,7 +120,7 @@ def load_cards(collection,
         List of CardInfo objects
     """
     # Extract card information
-    all_cids = collection.find_cards('"deck:Japan::1. Vocabulary"')
+    all_cids = collection.find_cards(f'"deck:{DECK_NAME}"')
     cards = []
     for cid in all_cids:
         card = collection.get_card(cid)
@@ -138,7 +153,7 @@ def detect_available_fields(collection, field_names):
     Returns:
         Set of field names that exist in at least one note type
     """
-    all_cids = collection.find_cards('"deck:Japan::1. Vocabulary"')
+    all_cids = collection.find_cards(f'"deck:{DECK_NAME}"')
     note_types_checked = set()
     available_fields = set()
     missing_fields_by_note_type = {}  # Track which fields are missing for which note types
@@ -318,7 +333,7 @@ def update_card_fields(card_info, collection,
 
     # Update score field (for all cards)
     if score_field in available_fields and score_field in field_indices:
-        note.fields[field_indices[score_field]] = str(round(card_info.score, 1))
+        note.fields[field_indices[score_field]] = format_score_for_note(card_info.score)
         updated = True
 
     # Update unlock potential field (for all cards)
@@ -328,12 +343,16 @@ def update_card_fields(card_info, collection,
 
     # Update unlock median score increase field (for all cards)
     if unlock_median_score_increase_field in available_fields and unlock_median_score_increase_field in field_indices:
-        note.fields[field_indices[unlock_median_score_increase_field]] = str(round(card_info.unlock_median_score_increase, 1))
+        note.fields[field_indices[unlock_median_score_increase_field]] = format_score_for_note(
+            card_info.unlock_median_score_increase
+        )
         updated = True
 
     # Update score without missing field (for all cards)
     if score_without_missing_field in available_fields and score_without_missing_field in field_indices:
-        note.fields[field_indices[score_without_missing_field]] = str(round(card_info.score_without_missing, 1))
+        note.fields[field_indices[score_without_missing_field]] = format_score_for_note(
+            card_info.score_without_missing
+        )
         updated = True
 
     # Update missing kanji count field (for all cards)
