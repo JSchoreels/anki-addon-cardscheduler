@@ -1,6 +1,6 @@
 # CardScheduler Menu Actions
 
-The CardScheduler add-on adds two menu items to Anki's **Tools** menu:
+The CardScheduler add-on adds these menu items to Anki's **Tools** menu:
 
 ## 1. CardScheduler: Compute Scores
 
@@ -12,9 +12,13 @@ The CardScheduler add-on adds two menu items to Anki's **Tools** menu:
   - `CardScheduler.Position` - Learning order (1, 2, 3...) **[NEW cards only, cleared for non-new cards]**
   - `CardScheduler.Score` - Familiarity score **[All cards]**
   - `CardScheduler.UnlockPotential` - Number of cards this would unlock **[All cards]**
+  - score-supporting metric fields such as missing kanji count, score without
+    missing kanji, unlock median score increase, and cards sharing kanji
 
 **What it does NOT do:**
 - Does NOT change the due dates or order of cards in Anki
+- Does NOT update related-word display fields
+- Does NOT generate Reading -> Kanji cards
 - Only updates the note fields for reference
 - Does NOT assign positions to cards that are already being reviewed or learned (clears their Position field instead)
 
@@ -37,11 +41,102 @@ The CardScheduler add-on adds two menu items to Anki's **Tools** menu:
 - Does NOT affect cards you're currently reviewing or already learned
 - Changes the order in which new cards will be introduced
 - May shift other new cards in the queue to maintain sequential order
+- Does NOT update related-word display fields
+- Does NOT generate Reading -> Kanji cards
 
 **Use this when:**
 - You want new cards presented in the optimal learning order
 - You want to learn high-priority cards (known words) first
 - You want cards with high unlock potential prioritized
+
+---
+
+## 3. CardScheduler: Compute Related Words
+
+**What it does:**
+- Computes cards that share kanji with each vocabulary card
+- Splits related cards into known and unknown groups
+- Updates related display fields:
+  - `CardScheduler.Related.Known`
+  - `CardScheduler.Related.Unknown`
+  - `CardScheduler.KanjiMeanings`
+
+**What it does NOT do:**
+- Does NOT update score or position fields
+- Does NOT reposition cards
+- Does NOT generate Reading -> Kanji cards
+
+**Use this when:**
+- You want to refresh related-word examples after adding or reviewing cards
+- You changed related-word or kanji-meaning display fields
+
+---
+
+## 4. CardScheduler: Update Reading->Kanji Cards
+
+**What it does:**
+- Scans known vocabulary cards in the configured vocabulary deck
+- Creates or updates one generated note per KANJIDIC onyomi dictionary reading
+- Writes possible kanji, meanings, grade, frequency, and known vocabulary examples
+- Creates the target deck and note type when they do not exist
+- Repositions generated cards every run by reading ambiguity
+
+**Default target:**
+- Deck: `<deck_name>::Reading->Kanji`
+- Note type: `CardScheduler Reading->Kanji`
+
+**Ordering:**
+- Readings with fewer possible kanji come first
+- Ties prefer more known vocabulary evidence, lower grade, and lower frequency rank
+
+See [Reading to Kanji Cards](READING_TO_KANJI_CARDS.md) for the full data rules.
+
+---
+
+## 5. CardScheduler: Compute Sentence Scores
+
+**What it does:**
+- Tokenizes configured sentence notes with MeCab
+- Scores sentence notes from reviewed vocabulary evidence
+- Writes strict score, predicted score, missing words, inferred words, and
+  kanji word count, and priority score
+- Adds missing sentence score fields to the configured sentence note type
+- Updates `CardScheduler.Position` for all sentence notes
+
+**What it does NOT do:**
+- Does NOT reposition cards
+- Does NOT change vocabulary scores
+- Does NOT generate Reading -> Kanji cards
+
+See [Sentence Scoring](SENTENCE_SCORING.md) for the full data rules.
+
+---
+
+## 6. CardScheduler: Compute and Reposition Sentence Cards
+
+**What it does:**
+- Everything from "Compute Sentence Scores"
+- **PLUS**: Repositions NEW sentence cards by sentence priority
+
+**What it affects:**
+- Only affects cards in the "new" state
+- Updates sentence fields on the note, so audio cards sharing the same note see
+  the same sentence score fields
+
+---
+
+## 7. CardScheduler: Compute Scores, Related Words, Reposition Cards, Generate Reading Cards, Sentence Scores
+
+**What it does:**
+- Runs **Compute Scores**
+- Runs **Compute Related Words**
+- Repositions new vocabulary cards
+- Computes sentence scores and repositions new sentence cards
+- Generates or updates Reading -> Kanji cards
+
+**Use this when:**
+- You want the complete CardScheduler refresh in one action
+- You added cards or completed reviews and want every generated field/deck updated
 
 ---
 
@@ -64,19 +159,35 @@ Position 6:  五年[ごねん]        Score: 0.0   Unlock: 1 (unlocks 1 card)
 
 ---
 
-## Required Note Fields
+## Note Fields
 
-Your note type must have these three fields:
+Score actions update these fields when they exist:
 - `CardScheduler.Position`
 - `CardScheduler.Score`
 - `CardScheduler.UnlockPotential`
+- `CardScheduler.UnlockMedianScoreIncrease`
+- `CardScheduler.ScoreWithoutMissing`
+- `CardScheduler.MissingKanjiCount`
+- `CardScheduler.CardsWithKanji`
+- `CardScheduler.CardsWithKanjiKnown`
+- `CardScheduler.CardsWithKanjiUnknown`
 
-**To customize field names**, edit the configuration at the top of `cardscheduler/__init__.py`:
-```python
-FIELD_NAME_POSITION = "CardScheduler.Position"
-FIELD_NAME_SCORE = "CardScheduler.Score"
-FIELD_NAME_UNLOCK_POTENTIAL = "CardScheduler.UnlockPotential"
-```
+Related-word actions update these fields when they exist:
+- `CardScheduler.Related.Known`
+- `CardScheduler.Related.Unknown`
+- `CardScheduler.KanjiMeanings`
+
+Sentence score actions add missing fields to the sentence note type, then update:
+- `CardScheduler.Position`
+- `CardScheduler.SentenceStrictScore`
+- `CardScheduler.SentencePredictedScore`
+- `CardScheduler.SentenceMissingWords`
+- `CardScheduler.SentenceInferredWords`
+- `CardScheduler.SentenceKanjiWordCount`
+- `CardScheduler.SentencePriorityScore`
+
+To customize field names, update the add-on configuration described in
+[Configuration](CONFIGURATION.md).
 
 ---
 
@@ -99,7 +210,7 @@ When you use **"Compute and Reposition Cards"**:
 ## Workflow Recommendation
 
 **First time setup:**
-1. Add the three required fields to your note type
+1. Add the fields you want CardScheduler to update to your note type
 2. Run **"Compute Scores"** to verify fields populate correctly
 3. Check the browser to see the computed values
 
@@ -108,6 +219,9 @@ When you use **"Compute and Reposition Cards"**:
    - Add new cards to the deck
    - Want to refresh the learning order
    - Complete some reviews (scores will have changed)
+2. Run **"Compute Related Words"** when you want related display fields refreshed.
+3. Run the full workflow action when you want score fields, related fields, card
+   ordering, and Reading -> Kanji cards refreshed together.
 
 **Frequency:**
 - Weekly: Good balance between freshness and stability
@@ -139,11 +253,13 @@ When you use **"Compute and Reposition Cards"**:
 
 **Key functions:**
 - `compute_scores()` - Main computation logic
+- `process_related_words()` - Computes and writes related display fields
 - `reposition_new_cards()` - Handles Anki repositioning
 - `update_card_fields()` - Writes to note fields
-- `process_collection()` - Orchestrates everything
+- `process_collection()` - Orchestrates score computation and optional repositioning
+- `process_all_features()` - Runs the full menu workflow
 
 **Configuration:**
-- Deck name: Hardcoded as `"Japan::1. Vocabulary"` in `load_cards()`
-- Field names: Configurable via constants at top of file
-- Furigana field: Defaults to `"ID"` in `load_cards()`
+- Deck name: configured by `deck_name`
+- Field names: configured by `field_names`
+- Input fields: configured by `input_fields`

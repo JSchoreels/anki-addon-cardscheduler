@@ -49,6 +49,32 @@ class TestInputModes(unittest.TestCase):
         result = convert_two_fields_to_furigana('', '')
         self.assertEqual(result, '')
 
+    def test_convert_two_fields_to_furigana_multiple_readings(self):
+        """Test that two-field mode preserves multiple kana reading options."""
+        result = convert_two_fields_to_furigana('止める', 'とどめる・とめる')
+        self.assertEqual(result, '止める[とどめる・とめる]')
+
+    def test_multiple_readings_with_different_delimiters(self):
+        """Test that reading parsing uses kana runs instead of fixed delimiters."""
+        furigana_text = convert_two_fields_to_furigana('止める', 'とどめる、とめる　やめる')
+        pairs = get_kanji_reading_pairs(furigana_text, self.kanji_readings)
+
+        self.assertSetEqual(pairs, {'止[とど]', '止[と]', '止[や]'})
+
+    def test_multiple_readings_in_furigana_brackets(self):
+        """Test multiple readings when bracket text already contains separators."""
+        pairs = get_kanji_reading_pairs('止める[とどめる・とめる]', self.kanji_readings)
+
+        self.assertSetEqual(pairs, {'止[とど]', '止[と]'})
+
+    def test_parenthesized_kana_prefix_is_context(self):
+        """Test that attached parenthesized kana is not treated as a reading."""
+        furigana_text = convert_two_fields_to_furigana('腹', 'はら、(お)なか')
+        pairs = get_kanji_reading_pairs(furigana_text, self.kanji_readings)
+
+        self.assertEqual(furigana_text, '腹[はら・なか]')
+        self.assertSetEqual(pairs, {'腹[はら]', '腹[なか]'})
+
     def test_single_field_format_parsing(self):
         """Test that single-field format is parsed correctly."""
         # Format: 頭[あたま]が 痛[いた]い

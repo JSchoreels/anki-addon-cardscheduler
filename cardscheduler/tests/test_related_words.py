@@ -3,9 +3,11 @@
 import unittest
 from cardscheduler import (
     CardInfo,
+    build_card_to_pairs,
     compute_scores,
     load_kanji_dictionnary_readings,
 )
+from cardscheduler.related import compute_related_words
 
 
 class TestRelatedWords(unittest.TestCase):
@@ -14,24 +16,6 @@ class TestRelatedWords(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.kanji_readings = load_kanji_dictionnary_readings()
-
-    def assert_has_related_card(self, related_cards_list, furigana_text, shared_kanji, message):
-        """Helper to check if a card with specific furigana and shared kanji exists in related cards list.
-
-        Args:
-            related_cards_list: List of (CardInfo, shared_kanji_set) tuples
-            furigana_text: Expected furigana text of related card
-            shared_kanji: Expected shared kanji (can be a set or single kanji string)
-            message: Assertion message
-        """
-        if isinstance(shared_kanji, str):
-            shared_kanji = {shared_kanji}
-
-        found = any(
-            card.furigana_text == furigana_text and kanji_set == shared_kanji
-            for card, kanji_set in related_cards_list
-        )
-        self.assertTrue(found, message)
 
     def assert_has_related_card_with_kanji(self, related_cards_list, furigana_text, expected_kanji, message):
         """Helper to check if a card exists with at least the expected kanji in shared set.
@@ -48,6 +32,11 @@ class TestRelatedWords(unittest.TestCase):
         )
         self.assertTrue(found, message)
 
+    def compute_related_words_for_cards(self, cards):
+        compute_scores(cards)
+        card_to_pairs = build_card_to_pairs(cards, self.kanji_readings)
+        compute_related_words(cards, card_to_pairs)
+
     def test_simple_related_words(self):
         """Test that cards sharing kanji/reading pairs are properly linked and split by known/unknown."""
         cards = [
@@ -56,7 +45,7 @@ class TestRelatedWords(unittest.TestCase):
             CardInfo(3, "失敗[しっぱい]", 0),
         ]
 
-        compute_scores(cards)
+        self.compute_related_words_for_cards(cards)
 
         card1 = [c for c in cards if c.card_id == 1][0]
         card2 = [c for c in cards if c.card_id == 2][0]
@@ -87,7 +76,7 @@ class TestRelatedWords(unittest.TestCase):
             CardInfo(2, "大学[だいがく]", 0),
         ]
 
-        compute_scores(cards)
+        self.compute_related_words_for_cards(cards)
 
         card1 = [c for c in cards if c.card_id == 1][0]
         card2 = [c for c in cards if c.card_id == 2][0]
@@ -111,7 +100,7 @@ class TestRelatedWords(unittest.TestCase):
             CardInfo(3, "学生[がくせい]", 0),
         ]
 
-        compute_scores(cards)
+        self.compute_related_words_for_cards(cards)
 
         card1 = [c for c in cards if c.card_id == 1][0]
         card2 = [c for c in cards if c.card_id == 2][0]
@@ -149,7 +138,7 @@ class TestRelatedWords(unittest.TestCase):
             CardInfo(3, "愛情[あいじょう]", 60),  # Known
         ]
 
-        compute_scores(cards)
+        self.compute_related_words_for_cards(cards)
 
         card2 = [c for c in cards if c.card_id == 2][0]
 
@@ -173,7 +162,7 @@ class TestRelatedWords(unittest.TestCase):
             CardInfo(5, "失敗[しっぱい]", 0),
         ]
 
-        compute_scores(cards)
+        self.compute_related_words_for_cards(cards)
 
         card1 = [c for c in cards if c.card_id == 1][0]
 

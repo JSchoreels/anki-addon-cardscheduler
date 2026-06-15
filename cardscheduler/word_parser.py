@@ -12,6 +12,9 @@ This module handles:
 import re
 from .dictionary import expand_iteration_marks, extract_kanji_only
 
+KANA_READING_PATTERN = re.compile(r'[ぁ-ゖァ-ヺー]+')
+PARENTHESIZED_KANA_CONTEXT_PATTERN = re.compile(r'[（(][ぁ-ゖァ-ヺー]+[）)](?=[ぁ-ゖァ-ヺー])')
+
 
 def count_kanji_in_text(text):
     """Count the number of kanji characters in text (excluding furigana)."""
@@ -38,6 +41,13 @@ def is_kanji(char):
     """Check if character is kanji."""
     return '\u4e00' <= char <= '\u9fff'
 
+
+def extract_kana_readings(text):
+    """Return consecutive kana readings from text, ignoring separators."""
+    text_without_context = PARENTHESIZED_KANA_CONTEXT_PATTERN.sub("", text or "")
+    return KANA_READING_PATTERN.findall(text_without_context)
+
+
 def convert_two_fields_to_furigana(kanji_text, reading_text):
     """
     Convert two-field format to furigana format, aligning kana and adding furigana only for kanji.
@@ -55,6 +65,10 @@ def convert_two_fields_to_furigana(kanji_text, reading_text):
 
     if not any(is_kanji(c) for c in kanji_text):
         return kanji_text
+
+    reading_options = extract_kana_readings(reading_text)
+    if len(reading_options) > 1:
+        return f"{kanji_text}[{'・'.join(reading_options)}]"
 
     result = []
     k_idx = 0
@@ -185,8 +199,6 @@ def split_reading_with_positions(kanji_word, reading, kanji_readings):
         remaining_reading = reading[reading_index:]
 
         best_actual_reading = None
-        best_match_length = 0
-        best_base_reading = None
 
         for (base_reading, extended_reading) in [(base_reading, extended_reading)
                                for base_reading in possible_readings
@@ -216,49 +228,50 @@ def get_kanji_reading_pairs(text, kanji_readings, dictionary_form=True):
     """Extract kanji-reading pairs using Kanjidic, falling back to kanji-only."""
     kanji_pairs = set()
     # Updated pattern to allow mixed kanji and kana in the first group
-    pattern = r'([一-龯ぁ-ゖァ-ヺー々]+)\[([ぁ-ゖァ-ヺー]+)\]([ぁ-ゖァ-ヺー]*)'
+    pattern = r'([一-龯ぁ-ゖァ-ヺー々]+)\[([^\]]+)\]([ぁ-ゖァ-ヺー]*)'
     matches = re.findall(pattern, text)
 
     processed_kanji = set()
-    for kanji_word, reading, conjugation in matches:
-        kanji_word = kanji_word + conjugation
-        reading = reading + conjugation  # Combine reading and conjugation for full reading
-        if len(kanji_word) == 1:
-            # For single kanji, use base reading only (original format)
-            kanji_pairs.add(f"{kanji_word}[{reading}]")
-            processed_kanji.add(kanji_word)
-        else:
-            # Handle 々 (iteration mark) by expanding it to repeat the previous kanji
-            expanded_kanji_word = expand_iteration_marks(kanji_word)
-
-            # Extract only kanji characters from compound word (after expansion)
-            kanji_chars = extract_kanji_only(expanded_kanji_word)
-
-            # Extract actual readings from the furigana text (not dictionary readings)
-            reading_parts = split_reading_with_positions(expanded_kanji_word, reading, kanji_readings)
-            if reading_parts:
-                # For repeated kanji (when 々 is used), only add unique kanji-reading pairs
-                unique_pairs = set()
-                for kanji, actual_reading, dictionary_form in reading_parts:
-                    reading = actual_reading
-                    if dictionary_form:
-                        reading = dictionary_form.split('.')[0]
-
-                        # for (dictionary_reading, reading_variations) in kanji_readings[kanji].items():
-                        #     if actual_reading in reading_variations:
-                        #         reading = dictionary_reading.split('.')[0]
-
-                    unique_pairs.add((kanji, reading))
-
-                for kanji, reading in unique_pairs:
-                    kanji_pairs.add(f"{kanji}[{reading}]")
-                    processed_kanji.add(kanji)
+    for kanji_word, reading_text, conjugation in matches:
+        for reading_option in extract_kana_readings(reading_text):
+            word_with_conjugation = kanji_word + conjugation
+            reading = reading_option + conjugation  # Combine reading and conjugation for full reading
+            if len(word_with_conjugation) == 1:
+                # For single kanji, use base reading only (original format)
+                kanji_pairs.add(f"{word_with_conjugation}[{reading}]")
+                processed_kanji.add(word_with_conjugation)
             else:
-                # If splitting fails, add individual kanji with empty readings
-                unique_kanji = set(kanji_chars)  # Remove duplicates
-                for kanji in unique_kanji:
-                    kanji_pairs.add(f"{kanji}[ ]")
-                    processed_kanji.add(kanji)
+                # Handle 々 (iteration mark) by expanding it to repeat the previous kanji
+                expanded_kanji_word = expand_iteration_marks(word_with_conjugation)
+
+                # Extract only kanji characters from compound word (after expansion)
+                kanji_chars = extract_kanji_only(expanded_kanji_word)
+
+                # Extract actual readings from the furigana text (not dictionary readings)
+                reading_parts = split_reading_with_positions(expanded_kanji_word, reading, kanji_readings)
+                if reading_parts:
+                    # For repeated kanji (when 々 is used), only add unique kanji-reading pairs
+                    unique_pairs = set()
+                    for kanji, actual_reading, dictionary_form in reading_parts:
+                        reading = actual_reading
+                        if dictionary_form:
+                            reading = dictionary_form.split('.')[0]
+
+                            # for (dictionary_reading, reading_variations) in kanji_readings[kanji].items():
+                            #     if actual_reading in reading_variations:
+                            #         reading = dictionary_reading.split('.')[0]
+
+                        unique_pairs.add((kanji, reading))
+
+                    for kanji, reading in unique_pairs:
+                        kanji_pairs.add(f"{kanji}[{reading}]")
+                        processed_kanji.add(kanji)
+                else:
+                    # If splitting fails, add individual kanji with empty readings
+                    unique_kanji = set(kanji_chars)  # Remove duplicates
+                    for kanji in unique_kanji:
+                        kanji_pairs.add(f"{kanji}[ ]")
+                        processed_kanji.add(kanji)
 
     # Handle standalone kanji without readings
     for char in text:

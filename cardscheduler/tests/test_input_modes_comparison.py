@@ -181,11 +181,6 @@ class TestInputModesComparison(unittest.TestCase):
 
         # Calculate match percentage excluding pure hiragana cards
         cards_with_kanji = total_compared - len(pure_hiragana_diffs)
-        matches_with_kanji = matching_scores + len(okurigana_diffs) + len(other_diffs) - len(okurigana_diffs) - len(other_diffs)
-        # Actually, let's recalculate properly
-        kanji_only_different = len(okurigana_diffs) + len(other_diffs)
-        kanji_only_matching = matching_scores + len(pure_hiragana_diffs) - len(pure_hiragana_diffs)
-        kanji_match_percentage = ((total_compared - kanji_only_different) / total_compared * 100) if total_compared > 0 else 0
 
         print(f"\nExcluding pure hiragana cards:")
         print(f"  Cards with kanji compared: {cards_with_kanji}")

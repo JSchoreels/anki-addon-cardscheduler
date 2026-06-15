@@ -9,6 +9,11 @@ from cardscheduler import (
     compute_scores,
     assign_positions_to_new_cards,
     load_kanji_dictionnary_readings,
+    NO_KANJI_BEFORE,
+    NO_KANJI_AFTER,
+    NO_KANJI_ZIPPED,
+    NO_KANJI_FREQUENCY_TYPE_RANK,
+    NO_KANJI_FREQUENCY_TYPE_FREQUENCY,
 )
 
 
@@ -148,6 +153,104 @@ class TestLearningOrder(unittest.TestCase):
 
         self.assertLess(max_known_position, min_unknown_position,
                        "Known cards should have lower positions (higher priority) than unknown cards")
+
+    def test_no_kanji_before_places_kana_only_cards_first(self):
+        """Kana-only cards should be placed before kanji cards in BEFORE mode."""
+        cards = [
+            CardInfo(1, "あいさつ", 0),
+            CardInfo(2, "学校[がっこう]", 10),
+            CardInfo(3, "ありがとう", 0),
+            CardInfo(4, "校長[こうちょう]", 5),
+        ]
+
+        compute_scores(cards)
+        new_card_ids = {card.card_id for card in cards}
+        assign_positions_to_new_cards(cards, new_card_ids, no_kanji_merge_mode=NO_KANJI_BEFORE)
+
+        kana_only_positions = [c.position for c in cards if c.card_id in [1, 3]]
+        kanji_positions = [c.position for c in cards if c.card_id in [2, 4]]
+
+        self.assertLess(max(kana_only_positions), min(kanji_positions))
+
+    def test_no_kanji_after_places_kana_only_cards_last(self):
+        """Kana-only cards should be placed after kanji cards in AFTER mode."""
+        cards = [
+            CardInfo(1, "あいさつ", 0),
+            CardInfo(2, "学校[がっこう]", 10),
+            CardInfo(3, "ありがとう", 0),
+            CardInfo(4, "校長[こうちょう]", 5),
+        ]
+
+        compute_scores(cards)
+        new_card_ids = {card.card_id for card in cards}
+        assign_positions_to_new_cards(cards, new_card_ids, no_kanji_merge_mode=NO_KANJI_AFTER)
+
+        kana_only_positions = [c.position for c in cards if c.card_id in [1, 3]]
+        kanji_positions = [c.position for c in cards if c.card_id in [2, 4]]
+
+        self.assertGreater(min(kana_only_positions), max(kanji_positions))
+
+    def test_no_kanji_zipped_interleaves_kana_only_cards(self):
+        """Kana-only cards should be interleaved with kanji cards in ZIPPED mode."""
+        cards = [
+            CardInfo(1, "あいさつ", 0),
+            CardInfo(2, "学校[がっこう]", 10),
+            CardInfo(3, "ありがとう", 0),
+            CardInfo(4, "校長[こうちょう]", 5),
+        ]
+
+        compute_scores(cards)
+        new_card_ids = {card.card_id for card in cards}
+        assign_positions_to_new_cards(cards, new_card_ids, no_kanji_merge_mode=NO_KANJI_ZIPPED)
+
+        positions = {card.card_id: card.position for card in cards}
+
+        self.assertEqual(positions[2], 1)
+        self.assertEqual(positions[1], 2)
+        self.assertEqual(positions[4], 3)
+        self.assertEqual(positions[3], 4)
+
+    def test_no_kanji_cards_ordered_by_rank_ascending(self):
+        """No-kanji cards should use ascending order when frequency type is RANK."""
+        cards = [
+            CardInfo(1, "あいさつ", 0, frequency=100),   # Less frequent rank
+            CardInfo(2, "学校[がっこう]", 10),
+            CardInfo(3, "ありがとう", 0, frequency=10),  # More frequent rank
+            CardInfo(4, "校長[こうちょう]", 5),
+        ]
+
+        compute_scores(cards)
+        new_card_ids = {card.card_id for card in cards}
+        assign_positions_to_new_cards(
+            cards,
+            new_card_ids,
+            no_kanji_merge_mode=NO_KANJI_ZIPPED,
+            no_kanji_frequency_type=NO_KANJI_FREQUENCY_TYPE_RANK,
+        )
+
+        positions = {card.card_id: card.position for card in cards}
+        self.assertLess(positions[3], positions[1])  # rank 10 before rank 100
+
+    def test_no_kanji_cards_ordered_by_frequency_descending(self):
+        """No-kanji cards should use descending order when frequency type is FREQUENCY."""
+        cards = [
+            CardInfo(1, "あいさつ", 0, frequency=100),   # Lower frequency count
+            CardInfo(2, "学校[がっこう]", 10),
+            CardInfo(3, "ありがとう", 0, frequency=1000),  # Higher frequency count
+            CardInfo(4, "校長[こうちょう]", 5),
+        ]
+
+        compute_scores(cards)
+        new_card_ids = {card.card_id for card in cards}
+        assign_positions_to_new_cards(
+            cards,
+            new_card_ids,
+            no_kanji_merge_mode=NO_KANJI_ZIPPED,
+            no_kanji_frequency_type=NO_KANJI_FREQUENCY_TYPE_FREQUENCY,
+        )
+
+        positions = {card.card_id: card.position for card in cards}
+        self.assertLess(positions[3], positions[1])  # 1000 before 100
 
 
 if __name__ == "__main__":

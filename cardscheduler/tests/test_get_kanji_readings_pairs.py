@@ -380,7 +380,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
             all_pairs.update(pairs)
 
             # Count kanji and empty brackets
-            empty_percentage, empty_pairs, non_empty_pairs = analyze_empty_brackets(pairs)
+            empty_percentage, empty_pairs, _ = analyze_empty_brackets(pairs)
 
             kanji_count = len(pairs) # - 1  # Exclude the full word pair
             empty_count = len(empty_pairs)

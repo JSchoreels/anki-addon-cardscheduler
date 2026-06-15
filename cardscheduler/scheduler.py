@@ -12,7 +12,15 @@ from collections import defaultdict
 
 from .dictionary import load_kanji_dictionnary_readings, extract_kanji_only
 from .word_parser import get_kanji_reading_pairs, count_kanji_in_text, count_kana_in_text
-from .related import compute_related_words
+from .config import (
+    NO_KANJI_MERGE_MODE,
+    NO_KANJI_BEFORE,
+    NO_KANJI_AFTER,
+    NO_KANJI_ZIPPED,
+    NO_KANJI_FREQUENCY_TYPE,
+    NO_KANJI_FREQUENCY_TYPE_RANK,
+    NO_KANJI_FREQUENCY_TYPE_FREQUENCY,
+)
 
 
 def build_card_to_pairs(cards, kanji_readings):
@@ -36,10 +44,14 @@ def build_card_to_pairs(cards, kanji_readings):
 class CardInfo:
     """Information about a single card including computed scores and metrics."""
 
-    def __init__(self, card_id, furigana_text, stability):
+    def __init__(self, card_id, furigana_text, stability, frequency=None,
+                 word_surface=None, word_readings=None):
         self.card_id = card_id
         self.furigana_text = furigana_text
         self.stability = stability
+        self.frequency = frequency  # Rank/frequency value used for no-kanji ordering
+        self.word_surface = word_surface
+        self.word_readings = tuple(word_readings or ())
         self.score = 0  # Initialize score
         self.unknown_kanji_readings = 0
         self.unlock_potential = 0  # Max unlock potential of any unknown kanji/reading pair in this card
@@ -159,6 +171,31 @@ def update_kanji_reading_to_cards_with_max_weighted_interval(kanji_reading_to_ca
         info.max_weighted_interval = max(weighted_intervals) if weighted_intervals else 0.0
 
 
+def compute_card_scores(cards, card_to_pairs, kanji_reading_to_cards):
+    """Compute score and unknown kanji-reading count for each card."""
+    for card_info in cards:
+        pairs = card_to_pairs[card_info.card_id]
+        if not pairs:
+            card_info.score = 0
+            continue
+
+        kanji_to_intervals = defaultdict(list)
+        for pair in pairs:
+            if pair in kanji_reading_to_cards:
+                kanji = pair.split('[')[0]
+                interval = kanji_reading_to_cards[pair].max_weighted_interval
+                kanji_to_intervals[kanji].append(interval)
+
+        max_intervals_per_kanji = [
+            max(intervals) for intervals in kanji_to_intervals.values()
+        ]
+
+        card_info.score = min(max_intervals_per_kanji) if max_intervals_per_kanji else 0
+        card_info.unknown_kanji_readings = sum(
+            1 for intervals in kanji_to_intervals.values() if max(intervals) == 0.0
+        )
+
+
 def compute_unlock_potential(kanji_reading_to_cards, card_to_pairs):
     """Compute unlock potential for each kanji/reading pair.
 
@@ -229,47 +266,8 @@ def compute_unlock_potential(kanji_reading_to_cards, card_to_pairs):
             pair_info.unlock_median_score_increase = 0
 
 
-def compute_scores(cards):
-    """Compute familiarity scores for a list of CardInfo objects."""
-    kanji_readings = load_kanji_dictionnary_readings()
-
-    # Build card_to_pairs once, used by all subsequent functions
-    card_to_pairs = build_card_to_pairs(cards, kanji_readings)
-
-    kanji_reading_to_cards = get_kanji_reading_to_matching_card(cards, card_to_pairs)
-    update_kanji_reading_to_cards_with_max_weighted_interval(kanji_reading_to_cards, card_to_pairs)
-
-    # Compute visual kanji familiarity metrics
-    kanji_to_cards = build_kanji_to_cards_mapping(cards)
-    compute_kanji_familiarity(cards, kanji_to_cards)
-
-    # Compute score for each card
-    for card_info in cards:
-        pairs = card_to_pairs[card_info.card_id]
-        if not pairs:
-            card_info.score = 0
-            continue
-
-        kanji_to_intervals = defaultdict(list)
-        for pair in pairs:
-            if pair in kanji_reading_to_cards:
-                kanji = pair.split('[')[0]
-                interval = kanji_reading_to_cards[pair].max_weighted_interval
-                kanji_to_intervals[kanji].append(interval)
-
-        max_intervals_per_kanji = [
-            max(intervals) for intervals in kanji_to_intervals.values()
-        ]
-
-        card_info.score = min(max_intervals_per_kanji) if max_intervals_per_kanji else 0
-        card_info.unknown_kanji_readings = sum(
-            1 for intervals in kanji_to_intervals.values() if max(intervals) == 0.0
-        )
-
-    # Compute unlock potential for each kanji/reading pair
-    compute_unlock_potential(kanji_reading_to_cards, card_to_pairs)
-
-    # Update each card's unlock potential and related metrics
+def update_card_unlock_metrics(cards, card_to_pairs, kanji_reading_to_cards):
+    """Update per-card unlock potential and missing-kanji metrics."""
     for card_info in cards:
         pairs = card_to_pairs[card_info.card_id]
         if not pairs:
@@ -320,8 +318,29 @@ def compute_scores(cards):
         card_info.unlock_potential = max_unlock
         card_info.unlock_median_score_increase = max_median_increase
 
-    # Compute related words for each card
-    compute_related_words(cards, card_to_pairs)
+
+def compute_scores(cards):
+    """Compute familiarity scores for a list of CardInfo objects."""
+    kanji_readings = load_kanji_dictionnary_readings()
+
+    # Build card_to_pairs once, used by all subsequent functions
+    card_to_pairs = build_card_to_pairs(cards, kanji_readings)
+
+    kanji_reading_to_cards = get_kanji_reading_to_matching_card(cards, card_to_pairs)
+    update_kanji_reading_to_cards_with_max_weighted_interval(kanji_reading_to_cards, card_to_pairs)
+
+    # Compute visual kanji familiarity metrics
+    kanji_to_cards = build_kanji_to_cards_mapping(cards)
+    compute_kanji_familiarity(cards, kanji_to_cards)
+
+    # Compute score for each card
+    compute_card_scores(cards, card_to_pairs, kanji_reading_to_cards)
+
+    # Compute unlock potential for each kanji/reading pair
+    compute_unlock_potential(kanji_reading_to_cards, card_to_pairs)
+
+    # Update each card's unlock potential and related metrics
+    update_card_unlock_metrics(cards, card_to_pairs, kanji_reading_to_cards)
 
 
 def compute_percentile_ranks(cards, metric_getters):
@@ -374,7 +393,50 @@ def compute_percentile_ranks(cards, metric_getters):
     return result
 
 
-def assign_positions_to_new_cards(cards, new_card_ids):
+def _interleave_cards(primary_cards, secondary_cards):
+    """Interleave two ordered card lists, starting with the primary list."""
+    merged = []
+    max_len = max(len(primary_cards), len(secondary_cards))
+    for i in range(max_len):
+        if i < len(primary_cards):
+            merged.append(primary_cards[i])
+        if i < len(secondary_cards):
+            merged.append(secondary_cards[i])
+    return merged
+
+
+def _sort_no_kanji_cards_by_frequency(cards, no_kanji_frequency_type):
+    """Sort no-kanji cards by configured frequency semantics."""
+    frequency_type = str(no_kanji_frequency_type).upper()
+
+    if frequency_type == NO_KANJI_FREQUENCY_TYPE_RANK:
+        # Lower rank means more frequent (e.g., rank 1 > rank 1000)
+        return sorted(
+            cards,
+            key=lambda c: (
+                c.frequency is None,
+                c.frequency if c.frequency is not None else float("inf"),
+            ),
+        )
+    if frequency_type == NO_KANJI_FREQUENCY_TYPE_FREQUENCY:
+        # Higher frequency count means more frequent
+        return sorted(
+            cards,
+            key=lambda c: (
+                c.frequency is None,
+                -(c.frequency if c.frequency is not None else 0.0),
+            ),
+        )
+
+    raise ValueError(f"Unknown no_kanji_frequency_type: {no_kanji_frequency_type}")
+
+
+def assign_positions_to_new_cards(
+    cards,
+    new_card_ids,
+    no_kanji_merge_mode=NO_KANJI_MERGE_MODE,
+    no_kanji_frequency_type=NO_KANJI_FREQUENCY_TYPE,
+):
     """
     Assign learning order positions only to new cards using percentile-based ranking.
 
@@ -401,6 +463,8 @@ def assign_positions_to_new_cards(cards, new_card_ids):
     Args:
         cards: List of all CardInfo objects with scores computed
         new_card_ids: Set of card IDs that are in 'new' state
+        no_kanji_merge_mode: How kana-only cards should be merged into the order
+        no_kanji_frequency_type: How to interpret frequency values (RANK or FREQUENCY)
     """
     # Filter only new cards
     new_cards = [c for c in cards if c.card_id in new_card_ids]
@@ -480,10 +544,23 @@ def assign_positions_to_new_cards(cards, new_card_ids):
             card.percentile_rank = 100.0
 
     # Sort by score (descending) first, then by percentile product (descending)
-    sorted_new_cards = sorted(new_cards, key=lambda c: (
+    ranked_new_cards = sorted(new_cards, key=lambda c: (
         -c.score,
         -c.percentile_rank
     ))
+
+    kana_only_cards = [card for card in ranked_new_cards if count_kanji_in_text(card.furigana_text) == 0]
+    kanji_cards = [card for card in ranked_new_cards if count_kanji_in_text(card.furigana_text) > 0]
+    kana_only_cards = _sort_no_kanji_cards_by_frequency(kana_only_cards, no_kanji_frequency_type)
+
+    if no_kanji_merge_mode == NO_KANJI_BEFORE:
+        sorted_new_cards = kana_only_cards + kanji_cards
+    elif no_kanji_merge_mode == NO_KANJI_AFTER:
+        sorted_new_cards = kanji_cards + kana_only_cards
+    elif no_kanji_merge_mode == NO_KANJI_ZIPPED:
+        sorted_new_cards = _interleave_cards(kanji_cards, kana_only_cards)
+    else:
+        raise ValueError(f"Unknown no_kanji_merge_mode: {no_kanji_merge_mode}")
 
     # Assign positions only to new cards
     for position, card in enumerate(sorted_new_cards, start=1):

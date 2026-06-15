@@ -50,9 +50,6 @@ def filter_rendaku_readings(readings):
     filtered = set()
 
     for reading in readings:
-        # Check if this reading has a non-rendaku version
-        rendaku_version = apply_rendaku(reading)
-
         # If this IS the rendaku version of another reading that exists, skip it
         is_rendaku = False
         for other_reading in readings_set:
@@ -83,6 +80,16 @@ def transform_kanjidic(input_file, output_file):
         char_el = ET.SubElement(light_root, "character")
         literal = ET.SubElement(char_el, "literal")
         literal.text = literal_elem.text
+
+        grade_elem = character.find("misc/grade")
+        if grade_elem is not None and grade_elem.text:
+            grade = ET.SubElement(char_el, "grade")
+            grade.text = grade_elem.text
+
+        freq_elem = character.find("misc/freq")
+        if freq_elem is not None and freq_elem.text:
+            freq = ET.SubElement(char_el, "freq")
+            freq.text = freq_elem.text
 
         # Collect all readings first, then filter
         ja_kun_readings = []

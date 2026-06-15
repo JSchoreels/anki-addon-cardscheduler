@@ -4,7 +4,13 @@ from anki.notes import Note
 from anki.cards import Card
 import sys
 
-from .cardscheduler import process_collection
+from .cardscheduler import (
+    process_all_features,
+    process_collection,
+    process_reading_to_kanji_cards,
+    process_related_words,
+    process_sentence_scores,
+)
 
 if 'pytest' not in sys.modules:
     # Create menu items in the Tools menu
@@ -19,3 +25,47 @@ if 'pytest' not in sys.modules:
         action_reposition = QAction("CardScheduler: Compute and Reposition Cards", mw)
         action_reposition.triggered.connect(lambda: process_collection(reposition=True))
         mw.form.menuTools.addAction(action_reposition)
+
+        # Action 3: Compute related-word display fields
+        action_related = QAction("CardScheduler: Compute Related Words", mw)
+        action_related.triggered.connect(lambda: process_related_words())
+        mw.form.menuTools.addAction(action_related)
+
+        # Action 4: Generate/update Reading -> Kanji cards from known vocabulary
+        action_reading_to_kanji = QAction(
+            "CardScheduler: Update Reading->Kanji Cards",
+            mw,
+        )
+        action_reading_to_kanji.triggered.connect(
+            lambda: process_reading_to_kanji_cards()
+        )
+        mw.form.menuTools.addAction(action_reading_to_kanji)
+
+        # Action 5: Compute sentence scores
+        action_sentence_scores = QAction(
+            "CardScheduler: Compute Sentence Scores",
+            mw,
+        )
+        action_sentence_scores.triggered.connect(
+            lambda: process_sentence_scores(reposition=False)
+        )
+        mw.form.menuTools.addAction(action_sentence_scores)
+
+        # Action 6: Compute sentence scores and reposition new sentence cards
+        action_sentence_reposition = QAction(
+            "CardScheduler: Compute and Reposition Sentence Cards",
+            mw,
+        )
+        action_sentence_reposition.triggered.connect(
+            lambda: process_sentence_scores(reposition=True)
+        )
+        mw.form.menuTools.addAction(action_sentence_reposition)
+
+        # Action 7: Run the complete workflow
+        action_all = QAction(
+            "CardScheduler: Compute Scores, Related Words, Reposition Cards, "
+            "Generate Reading Cards, Sentence Scores",
+            mw,
+        )
+        action_all.triggered.connect(lambda: process_all_features())
+        mw.form.menuTools.addAction(action_all)

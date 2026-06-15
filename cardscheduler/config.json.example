@@ -1,0 +1,56 @@
+{
+  "deck_name": "Japan::1. Vocabulary",
+  "field_names": {
+    "position": "CardScheduler.Position",
+    "score": "CardScheduler.Score",
+    "unlock_potential": "CardScheduler.UnlockPotential",
+    "unlock_median_score_increase": "CardScheduler.UnlockMedianScoreIncrease",
+    "score_without_missing": "CardScheduler.ScoreWithoutMissing",
+    "missing_kanji_count": "CardScheduler.MissingKanjiCount",
+    "related_known": "CardScheduler.Related.Known",
+    "related_unknown": "CardScheduler.Related.Unknown",
+    "kanji_meanings": "CardScheduler.KanjiMeanings",
+    "cards_with_kanji": "CardScheduler.CardsWithKanji",
+    "cards_with_kanji_known": "CardScheduler.CardsWithKanjiKnown",
+    "cards_with_kanji_unknown": "CardScheduler.CardsWithKanjiUnknown"
+  },
+  "input_mode": "two",
+  "input_fields": {
+    "single": "ID",
+    "kanji": "Front",
+    "reading": "Reading"
+  },
+  "simulate_zero_stability": false,
+  "no_kanji_merge_mode": "NO_KANJI_ZIPPED",
+  "no_kanji_frequency_field": "Frequency",
+  "no_kanji_frequency_type": "RANK",
+  "reading_to_kanji_cards": {
+    "deck_name": "Japan::4. Recall::Reading->Kanji",
+    "note_type": "CardScheduler Reading->Kanji",
+    "max_grade": 8,
+    "field_names": {
+      "reading": "Reading",
+      "kanji_meaning": "Kanji Meaning",
+      "matching_kanji_count": "Matching Kanji Count",
+      "grade": "Grade",
+      "frequency": "Frequency",
+      "known_words": "Known Words"
+    }
+  },
+  "sentence_scoring": {
+    "deck_names": [
+      "Japan::2. Sentences",
+      "Japan::3. Audio"
+    ],
+    "note_type": "Japanese Sentence Card",
+    "sentence_field": "Sentence",
+    "field_names": {
+      "strict_score": "CardScheduler.SentenceStrictScore",
+      "predicted_score": "CardScheduler.SentencePredictedScore",
+      "missing_words": "CardScheduler.SentenceMissingWords",
+      "inferred_words": "CardScheduler.SentenceInferredWords",
+      "kanji_word_count": "CardScheduler.SentenceKanjiWordCount",
+      "priority_score": "CardScheduler.SentencePriorityScore"
+    }
+  }
+}

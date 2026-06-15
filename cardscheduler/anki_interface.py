@@ -12,6 +12,7 @@ This module handles:
 """
 
 import math
+import re
 
 try:
     from aqt import mw
@@ -22,8 +23,22 @@ except ImportError:
     def showInfo(msg):
         print(msg)
 
-from .scheduler import CardInfo, compute_scores, assign_positions_to_new_cards
-from .word_parser import convert_two_fields_to_furigana
+from .scheduler import (
+    CardInfo,
+    assign_positions_to_new_cards,
+    build_card_to_pairs,
+    compute_scores,
+)
+from .related import compute_related_words
+from .sentence_morphology import MecabTokenAnalyzer
+from .sentence_scheduler import (
+    SentenceCardInfo,
+    assign_sentence_positions_and_priority,
+    build_kanji_reading_interval_map,
+    build_vocabulary_word_index,
+    compute_sentence_scores,
+)
+from .word_parser import convert_two_fields_to_furigana, extract_kana_readings
 from .config import (
     DECK_NAME,
     FIELD_NAME_POSITION,
@@ -44,7 +59,17 @@ from .config import (
     INPUT_MODE_TWO_FIELDS,
     INPUT_FIELD_SINGLE,
     INPUT_FIELD_KANJI,
-    INPUT_FIELD_READING
+    INPUT_FIELD_READING,
+    NO_KANJI_FREQUENCY_FIELD,
+    SENTENCE_DECK_NAMES,
+    SENTENCE_NOTE_TYPE,
+    SENTENCE_FIELD,
+    FIELD_NAME_SENTENCE_STRICT_SCORE,
+    FIELD_NAME_SENTENCE_PREDICTED_SCORE,
+    FIELD_NAME_SENTENCE_MISSING_WORDS,
+    FIELD_NAME_SENTENCE_INFERRED_WORDS,
+    FIELD_NAME_SENTENCE_KANJI_WORD_COUNT,
+    FIELD_NAME_SENTENCE_PRIORITY_SCORE,
 )
 from .html_formatter import format_card_html
 
@@ -70,6 +95,40 @@ def get_field_value(note, field_name):
         if fld['name'] == field_name:
             return note.fields[i]
     return ""
+
+
+def parse_frequency_value(value):
+    """Parse frequency/rank field value into a float."""
+    if value is None:
+        return None
+
+    cleaned = str(value).strip().replace(",", "")
+    if not cleaned:
+        return None
+
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _plain_text(value):
+    """Remove simple HTML markup from Anki field text."""
+    text = re.sub(r"<br\s*/?>", " ", value or "", flags=re.I)
+    text = re.sub(r"<[^>]+>", "", text)
+    return text.strip()
+
+
+def _surface_from_furigana(text):
+    return re.sub(r"\[[^\]]*\]", "", text or "").replace(" ", "").strip()
+
+
+def _reading_options_from_furigana(text):
+    readings = re.findall(r"\[([^\]]+)\]", text or "")
+    options = []
+    for reading in readings:
+        options.extend(extract_kana_readings(reading))
+    return tuple(options)
 
 
 def get_card_stability(card, simulate_zero=False):
@@ -104,6 +163,7 @@ def load_cards(collection,
                single_field_name=INPUT_FIELD_SINGLE,
                kanji_field_name=INPUT_FIELD_KANJI,
                reading_field_name=INPUT_FIELD_READING,
+               frequency_field_name=NO_KANJI_FREQUENCY_FIELD,
                simulate_zero_stability=SIMULATE_ZERO_STABILITY):
     """
     Load cards from collection and extract furigana text.
@@ -114,6 +174,7 @@ def load_cards(collection,
         single_field_name: Field name for single-field mode
         kanji_field_name: Field name for kanji in two-field mode
         reading_field_name: Field name for reading in two-field mode
+        frequency_field_name: Field name containing frequency/rank for no-kanji ordering
         simulate_zero_stability: If True, treat all cards as having zero stability
 
     Returns:
@@ -122,22 +183,54 @@ def load_cards(collection,
     # Extract card information
     all_cids = collection.find_cards(f'"deck:{DECK_NAME}"')
     cards = []
+    frequency_field_found = False
     for cid in all_cids:
         card = collection.get_card(cid)
         note = card.note()
+        note_type = note.note_type()
+        note_field_names = {fld['name'] for fld in note_type['flds']}
+
+        if frequency_field_name and frequency_field_name in note_field_names:
+            frequency_field_found = True
 
         # Get furigana text based on input mode
+        word_surface = ""
+        word_readings = ()
         if input_mode == INPUT_MODE_SINGLE_FIELD:
             furigana_text = get_field_value(note, single_field_name)
+            word_surface = _surface_from_furigana(furigana_text)
+            word_readings = _reading_options_from_furigana(furigana_text)
         elif input_mode == INPUT_MODE_TWO_FIELDS:
             kanji_text = get_field_value(note, kanji_field_name)
             reading_text = get_field_value(note, reading_field_name)
             furigana_text = convert_two_fields_to_furigana(kanji_text, reading_text)
+            word_surface = _plain_text(kanji_text)
+            word_readings = tuple(extract_kana_readings(_plain_text(reading_text)))
         else:
             furigana_text = ""
 
         stability = get_card_stability(card, simulate_zero=simulate_zero_stability)
-        cards.append(CardInfo(card.id, furigana_text, stability))
+
+        frequency = None
+        if frequency_field_name and frequency_field_name in note_field_names:
+            frequency = parse_frequency_value(get_field_value(note, frequency_field_name))
+
+        cards.append(
+            CardInfo(
+                card.id,
+                furigana_text,
+                stability,
+                frequency=frequency,
+                word_surface=word_surface,
+                word_readings=word_readings,
+            )
+        )
+
+    if frequency_field_name and cards and not frequency_field_found:
+        raise ValueError(
+            f"Configured frequency field '{frequency_field_name}' was not found in deck '{DECK_NAME}'."
+        )
+
     return cards
 
 
@@ -191,6 +284,161 @@ def detect_available_fields(collection, field_names):
     return available_fields
 
 
+def ensure_note_type_fields(collection, note_type_name, field_names):
+    """Add missing fields to an existing note type and return all available fields."""
+    notetype = collection.models.by_name(note_type_name)
+    if notetype is None:
+        raise ValueError(f"Note type '{note_type_name}' was not found.")
+
+    existing_fields = {field["name"] for field in notetype["flds"]}
+    updated = False
+    for field_name in field_names:
+        if field_name in existing_fields:
+            continue
+        collection.models.add_field(notetype, collection.models.new_field(field_name))
+        existing_fields.add(field_name)
+        updated = True
+
+    if updated:
+        collection.models.update_dict(notetype)
+        refreshed = collection.models.by_name(note_type_name)
+        if refreshed is not None:
+            notetype = refreshed
+            existing_fields = {field["name"] for field in notetype["flds"]}
+        if mw is not None and hasattr(mw, "reset"):
+            mw.reset()
+
+    return existing_fields
+
+
+def load_sentence_cards(collection,
+                        sentence_deck_names=SENTENCE_DECK_NAMES,
+                        sentence_note_type=SENTENCE_NOTE_TYPE,
+                        sentence_field=SENTENCE_FIELD,
+                        analyzer=None,
+                        sentence_limit=None):
+    """Load unique sentence notes from configured sentence/audio decks."""
+    card_ids = []
+    for deck_name in sentence_deck_names:
+        query = f'"deck:{deck_name}" "note:{sentence_note_type}"'
+        card_ids.extend(collection.find_cards(query))
+
+    sentence_cards_by_note = {}
+    for card_id in card_ids:
+        card = collection.get_card(card_id)
+        note = card.note()
+        note_id = note.id
+
+        sentence_card = sentence_cards_by_note.get(note_id)
+        if sentence_card is None:
+            if sentence_limit is not None and len(sentence_cards_by_note) >= sentence_limit:
+                continue
+            sentence_text = _plain_text(get_field_value(note, sentence_field))
+            sentence_card = SentenceCardInfo(
+                note_id=note_id,
+                card_ids=[],
+                sentence_text=sentence_text,
+            )
+            sentence_cards_by_note[note_id] = sentence_card
+
+        if card_id not in sentence_card.card_ids:
+            sentence_card.card_ids.append(card_id)
+
+    sentence_cards = list(sentence_cards_by_note.values())
+    if analyzer:
+        tokens_by_text = analyzer.extract_tokens_many(
+            [sentence_card.sentence_text for sentence_card in sentence_cards]
+        )
+        for sentence_card in sentence_cards:
+            sentence_card.tokens = tokens_by_text.get(sentence_card.sentence_text, [])
+
+    return sentence_cards
+
+
+def sentence_new_card_ids(collection,
+                          sentence_deck_names=SENTENCE_DECK_NAMES,
+                          sentence_note_type=SENTENCE_NOTE_TYPE):
+    new_card_ids = set()
+    for deck_name in sentence_deck_names:
+        query = f'"deck:{deck_name}" "note:{sentence_note_type}" is:new'
+        new_card_ids.update(collection.find_cards(query))
+    return new_card_ids
+
+
+def update_sentence_fields(sentence_cards, collection, dry_run=False, available_fields=None):
+    if available_fields is None:
+        available_fields = set()
+
+    update_count = 0
+    for sentence_card in sentence_cards:
+        if dry_run:
+            update_count += 1
+        elif update_sentence_note_fields(
+            sentence_card,
+            collection,
+            available_fields=available_fields,
+        ):
+            update_count += 1
+    return update_count
+
+
+def update_sentence_note_fields(sentence_card, collection, available_fields=None):
+    if available_fields is None:
+        available_fields = set()
+    if not sentence_card.card_ids:
+        return False
+
+    note = collection.get_card(sentence_card.card_ids[0]).note()
+    note_type = note.note_type()
+    field_indices = {
+        field["name"]: index
+        for index, field in enumerate(note_type["flds"])
+    }
+
+    field_values = {
+        FIELD_NAME_POSITION: str(sentence_card.position) if sentence_card.position else "",
+        FIELD_NAME_SENTENCE_STRICT_SCORE: format_score_for_note(sentence_card.strict_score),
+        FIELD_NAME_SENTENCE_PREDICTED_SCORE: format_score_for_note(sentence_card.predicted_score),
+        FIELD_NAME_SENTENCE_MISSING_WORDS: str(sentence_card.missing_words),
+        FIELD_NAME_SENTENCE_INFERRED_WORDS: str(sentence_card.inferred_words),
+        FIELD_NAME_SENTENCE_KANJI_WORD_COUNT: str(sentence_card.kanji_word_count),
+        FIELD_NAME_SENTENCE_PRIORITY_SCORE: format_score_for_note(sentence_card.priority_score),
+    }
+
+    updated = False
+    for field_name, value in field_values.items():
+        if field_name in available_fields and field_name in field_indices:
+            note.fields[field_indices[field_name]] = value
+            updated = True
+
+    if updated:
+        collection.update_note(note)
+    return updated
+
+
+def reposition_new_sentence_cards(collection, sentence_cards, new_card_ids):
+    sorted_new_card_ids = []
+    for sentence_card in sorted(
+        (card for card in sentence_cards if card.position > 0),
+        key=lambda card: card.position,
+    ):
+        sorted_new_card_ids.extend(
+            card_id for card_id in sentence_card.card_ids if card_id in new_card_ids
+        )
+
+    if not sorted_new_card_ids:
+        return 0
+
+    collection.sched.reposition_new_cards(
+        card_ids=sorted_new_card_ids,
+        starting_from=1,
+        step_size=1,
+        randomize=False,
+        shift_existing=True,
+    )
+    return len(sorted_new_card_ids)
+
+
 def print_scores(cards, new_card_ids=None):
     """
     Print card scores. Only new cards have positions assigned.
@@ -235,7 +483,9 @@ def update_cards_score(cards_score, collection, kanji_meanings, kanji_readings,
                        position_field=FIELD_NAME_POSITION,
                        score_field=FIELD_NAME_SCORE,
                        unlock_potential_field=FIELD_NAME_UNLOCK_POTENTIAL,
-                       new_card_ids=None, dry_run=False, available_fields=None):
+                       new_card_ids=None, dry_run=False, available_fields=None,
+                       update_related_fields=True,
+                       update_kanji_meanings_field=True):
     """
     Update card fields with position, score, and unlock potential.
 
@@ -250,6 +500,8 @@ def update_cards_score(cards_score, collection, kanji_meanings, kanji_readings,
         new_card_ids: Set of card IDs that are new (only these get position updated)
         dry_run: If True, don't actually update
         available_fields: Set of field names that are available (to skip missing fields)
+        update_related_fields: If True, update related-word fields
+        update_kanji_meanings_field: If True, update kanji meanings field
     """
     if available_fields is None:
         available_fields = set()
@@ -264,7 +516,9 @@ def update_cards_score(cards_score, collection, kanji_meanings, kanji_readings,
                                score_field=score_field,
                                unlock_potential_field=unlock_potential_field,
                                update_position=is_new,
-                               available_fields=available_fields):
+                               available_fields=available_fields,
+                               update_related_fields=update_related_fields,
+                               update_kanji_meanings_field=update_kanji_meanings_field):
             update_count += 1
     return update_count
 
@@ -284,7 +538,10 @@ def update_card_fields(card_info, collection,
                        cards_with_kanji_known_field=FIELD_NAME_CARDS_WITH_KANJI_KNOWN,
                        cards_with_kanji_unknown_field=FIELD_NAME_CARDS_WITH_KANJI_UNKNOWN,
                        update_position=True,
-                       available_fields=None):
+                       available_fields=None,
+                       update_score_fields=True,
+                       update_related_fields=True,
+                       update_kanji_meanings_field=True):
     """
     Update card note with all computed fields.
 
@@ -299,6 +556,9 @@ def update_card_fields(card_info, collection,
         missing_kanji_count_field: Name of missing kanji count field
         update_position: If True, update position field; if False, clear position field
         available_fields: Set of field names that are available (to skip missing fields)
+        update_score_fields: If True, update score and position fields
+        update_related_fields: If True, update related-word fields
+        update_kanji_meanings_field: If True, update kanji meanings field
     """
     if available_fields is None:
         available_fields = set()
@@ -312,18 +572,19 @@ def update_card_fields(card_info, collection,
     for i, fld in enumerate(note_type['flds']):
         field_indices[fld['name']] = i
 
-    # Generate HTML for all display fields
-    related_known_html, related_unknown_html, meanings_html = format_card_html(
-        card_info,
-        kanji_meanings,
-        kanji_readings
-    )
+    related_known_html = related_unknown_html = meanings_html = ""
+    if update_related_fields or update_kanji_meanings_field:
+        related_known_html, related_unknown_html, meanings_html = format_card_html(
+            card_info,
+            kanji_meanings,
+            kanji_readings
+        )
 
     # Track if any field was updated
     updated = False
 
     # Update position field (only for new cards) or clear it (for non-new cards)
-    if position_field in available_fields and position_field in field_indices:
+    if update_score_fields and position_field in available_fields and position_field in field_indices:
         if update_position:
             note.fields[field_indices[position_field]] = str(card_info.position)
         else:
@@ -332,58 +593,58 @@ def update_card_fields(card_info, collection,
         updated = True
 
     # Update score field (for all cards)
-    if score_field in available_fields and score_field in field_indices:
+    if update_score_fields and score_field in available_fields and score_field in field_indices:
         note.fields[field_indices[score_field]] = format_score_for_note(card_info.score)
         updated = True
 
     # Update unlock potential field (for all cards)
-    if unlock_potential_field in available_fields and unlock_potential_field in field_indices:
+    if update_score_fields and unlock_potential_field in available_fields and unlock_potential_field in field_indices:
         note.fields[field_indices[unlock_potential_field]] = str(card_info.unlock_potential)
         updated = True
 
     # Update unlock median score increase field (for all cards)
-    if unlock_median_score_increase_field in available_fields and unlock_median_score_increase_field in field_indices:
+    if update_score_fields and unlock_median_score_increase_field in available_fields and unlock_median_score_increase_field in field_indices:
         note.fields[field_indices[unlock_median_score_increase_field]] = format_score_for_note(
             card_info.unlock_median_score_increase
         )
         updated = True
 
     # Update score without missing field (for all cards)
-    if score_without_missing_field in available_fields and score_without_missing_field in field_indices:
+    if update_score_fields and score_without_missing_field in available_fields and score_without_missing_field in field_indices:
         note.fields[field_indices[score_without_missing_field]] = format_score_for_note(
             card_info.score_without_missing
         )
         updated = True
 
     # Update missing kanji count field (for all cards)
-    if missing_kanji_count_field in available_fields and missing_kanji_count_field in field_indices:
+    if update_score_fields and missing_kanji_count_field in available_fields and missing_kanji_count_field in field_indices:
         note.fields[field_indices[missing_kanji_count_field]] = str(card_info.missing_kanji_count)
         updated = True
 
     # Update cards with kanji fields (visual familiarity metrics)
-    if cards_with_kanji_field in available_fields and cards_with_kanji_field in field_indices:
+    if update_score_fields and cards_with_kanji_field in available_fields and cards_with_kanji_field in field_indices:
         note.fields[field_indices[cards_with_kanji_field]] = str(card_info.cards_with_kanji)
         updated = True
-    if cards_with_kanji_known_field in available_fields and cards_with_kanji_known_field in field_indices:
+    if update_score_fields and cards_with_kanji_known_field in available_fields and cards_with_kanji_known_field in field_indices:
         note.fields[field_indices[cards_with_kanji_known_field]] = str(card_info.cards_with_kanji_known)
         updated = True
-    if cards_with_kanji_unknown_field in available_fields and cards_with_kanji_unknown_field in field_indices:
+    if update_score_fields and cards_with_kanji_unknown_field in available_fields and cards_with_kanji_unknown_field in field_indices:
         note.fields[field_indices[cards_with_kanji_unknown_field]] = str(card_info.cards_with_kanji_unknown)
         updated = True
 
     # Update related known words field (for all cards)
-    if related_known_field in available_fields and related_known_field in field_indices:
+    if update_related_fields and related_known_field in available_fields and related_known_field in field_indices:
         note.fields[field_indices[related_known_field]] = related_known_html
         updated = True
 
     # Update related unknown words field (for all cards)
-    if related_unknown_field in available_fields and related_unknown_field in field_indices:
+    if update_related_fields and related_unknown_field in available_fields and related_unknown_field in field_indices:
         note.fields[field_indices[related_unknown_field]] = related_unknown_html
         updated = True
 
     # Update kanji meanings field (for all cards)
     kanji_meanings_field = FIELD_NAME_KANJI_MEANINGS
-    if kanji_meanings_field in available_fields and kanji_meanings_field in field_indices:
+    if update_kanji_meanings_field and kanji_meanings_field in available_fields and kanji_meanings_field in field_indices:
         note.fields[field_indices[kanji_meanings_field]] = meanings_html
         updated = True
 
@@ -428,6 +689,173 @@ def reposition_new_cards(cards, collection):
     return len(sorted_card_ids)
 
 
+def process_related_words(collection=None, dry_run=False):
+    """
+    Process cards to compute and update related-word display fields.
+
+    Args:
+        collection: Anki collection (defaults to mw.col)
+        dry_run: If True, don't actually update cards
+    """
+    if not collection:
+        collection = mw.col
+
+    cards = load_cards(collection)
+    from .dictionary import load_kanji_dictionnary_readings, load_kanji_meanings
+    kanji_readings = load_kanji_dictionnary_readings()
+    kanji_meanings = load_kanji_meanings()
+    card_to_pairs = build_card_to_pairs(cards, kanji_readings)
+    compute_related_words(cards, card_to_pairs)
+
+    available_fields = detect_available_fields(collection, [
+        FIELD_NAME_RELATED_KNOWN,
+        FIELD_NAME_RELATED_UNKNOWN,
+        FIELD_NAME_KANJI_MEANINGS,
+    ])
+
+    update_count = 0
+    for card in cards:
+        if dry_run:
+            update_count += 1
+        elif update_card_fields(
+            card,
+            collection,
+            kanji_meanings,
+            kanji_readings,
+            available_fields=available_fields,
+            update_score_fields=False,
+            update_related_fields=True,
+            update_kanji_meanings_field=True,
+        ):
+            update_count += 1
+
+    print("=" * 60)
+    print(f"Total cards processed for related words: {len(cards)}")
+    print(f"Related fields updated for {update_count} cards")
+    print(f"  - {FIELD_NAME_RELATED_KNOWN}: Related known words")
+    print(f"  - {FIELD_NAME_RELATED_UNKNOWN}: Related unknown words")
+    print(f"  - {FIELD_NAME_KANJI_MEANINGS}: Kanji meanings")
+
+    message = f"Updated related-word fields for {update_count} cards:\n"
+    message += f"  - {FIELD_NAME_RELATED_KNOWN}\n"
+    message += f"  - {FIELD_NAME_RELATED_UNKNOWN}\n"
+    message += f"  - {FIELD_NAME_KANJI_MEANINGS}"
+    showInfo(message)
+    return update_count
+
+
+def process_sentence_scores(collection=None, dry_run=False, reposition=False):
+    """
+    Compute sentence strict/predicted scores and optionally reposition new cards.
+    """
+    if not collection:
+        collection = mw.col
+
+    analyzer = MecabTokenAnalyzer()
+    if not analyzer.available:
+        message = "MeCab is not available; sentence scores were not updated."
+        print(message)
+        showInfo(message)
+        return 0
+
+    vocab_cards = load_cards(collection)
+    compute_scores(vocab_cards)
+
+    from .dictionary import load_kanji_dictionnary_readings
+    kanji_readings = load_kanji_dictionnary_readings()
+    pair_intervals = build_kanji_reading_interval_map(vocab_cards, kanji_readings)
+    vocabulary_index = build_vocabulary_word_index(vocab_cards, analyzer)
+
+    sentence_cards = load_sentence_cards(collection, analyzer=analyzer)
+    compute_sentence_scores(
+        sentence_cards,
+        vocabulary_index,
+        kanji_readings,
+        pair_intervals,
+    )
+
+    new_cids = sentence_new_card_ids(collection)
+    assign_sentence_positions_and_priority(sentence_cards, new_cids)
+
+    sentence_field_names = [
+        FIELD_NAME_POSITION,
+        FIELD_NAME_SENTENCE_STRICT_SCORE,
+        FIELD_NAME_SENTENCE_PREDICTED_SCORE,
+        FIELD_NAME_SENTENCE_MISSING_WORDS,
+        FIELD_NAME_SENTENCE_INFERRED_WORDS,
+        FIELD_NAME_SENTENCE_KANJI_WORD_COUNT,
+        FIELD_NAME_SENTENCE_PRIORITY_SCORE,
+    ]
+    if dry_run:
+        available_fields = set(sentence_field_names)
+    else:
+        available_fields = ensure_note_type_fields(
+            collection,
+            SENTENCE_NOTE_TYPE,
+            sentence_field_names,
+        )
+
+    update_count = update_sentence_fields(
+        sentence_cards,
+        collection,
+        dry_run=dry_run,
+        available_fields=available_fields,
+    )
+
+    reposition_count = 0
+    if reposition and not dry_run:
+        reposition_count = reposition_new_sentence_cards(
+            collection,
+            sentence_cards,
+            new_cids,
+        )
+
+    print("=" * 60)
+    print(f"Sentence cards processed: {len(sentence_cards)}")
+    print(f"  - New sentence cards: {len(new_cids)}")
+    print(f"Sentence fields updated for {update_count} notes")
+    print(f"  - {FIELD_NAME_SENTENCE_STRICT_SCORE}")
+    print(f"  - {FIELD_NAME_SENTENCE_PREDICTED_SCORE}")
+    print(f"  - {FIELD_NAME_SENTENCE_MISSING_WORDS}")
+    print(f"  - {FIELD_NAME_SENTENCE_INFERRED_WORDS}")
+    print(f"  - {FIELD_NAME_SENTENCE_KANJI_WORD_COUNT}")
+    print(f"  - {FIELD_NAME_SENTENCE_PRIORITY_SCORE}")
+    print(f"  - {FIELD_NAME_POSITION} (all sentence notes)")
+    if reposition_count:
+        print(f"Repositioned {reposition_count} new sentence cards")
+
+    message = f"Updated sentence fields for {update_count} notes:\n"
+    message += f"  - {FIELD_NAME_SENTENCE_STRICT_SCORE}\n"
+    message += f"  - {FIELD_NAME_SENTENCE_PREDICTED_SCORE}\n"
+    message += f"  - {FIELD_NAME_SENTENCE_MISSING_WORDS}\n"
+    message += f"  - {FIELD_NAME_SENTENCE_INFERRED_WORDS}\n"
+    message += f"  - {FIELD_NAME_SENTENCE_KANJI_WORD_COUNT}\n"
+    message += f"  - {FIELD_NAME_SENTENCE_PRIORITY_SCORE}\n"
+    message += f"  - {FIELD_NAME_POSITION} (all sentence notes)"
+    if reposition_count:
+        message += f"\n\nRepositioned {reposition_count} new sentence cards"
+    showInfo(message)
+    return update_count
+
+
+def process_all_features(collection=None, dry_run=False):
+    """
+    Run the full CardScheduler workflow.
+
+    Computes score fields, computes related-word fields, repositions new cards,
+    and generates Reading -> Kanji cards.
+    """
+    if not collection:
+        collection = mw.col
+
+    process_collection(collection=collection, dry_run=dry_run, reposition=True)
+    process_related_words(collection=collection, dry_run=dry_run)
+    process_sentence_scores(collection=collection, dry_run=dry_run, reposition=True)
+
+    from .reading_to_kanji_cards import process_reading_to_kanji_cards
+    return process_reading_to_kanji_cards(collection=collection, dry_run=dry_run)
+
+
 def process_collection(collection=None, dry_run=False, reposition=False):
     """
     Process cards to compute scores, unlock potential, and positions.
@@ -470,7 +898,7 @@ def process_collection(collection=None, dry_run=False, reposition=False):
     # Show all cards in output
     print_scores(cards, new_card_ids=new_cids)
 
-    # Detect which fields exist in the note types
+    # Detect which score fields exist in the note types
     available_fields = detect_available_fields(collection, [
         FIELD_NAME_POSITION,
         FIELD_NAME_SCORE,
@@ -478,21 +906,23 @@ def process_collection(collection=None, dry_run=False, reposition=False):
         FIELD_NAME_UNLOCK_MEDIAN_SCORE_INCREASE,
         FIELD_NAME_SCORE_WITHOUT_MISSING,
         FIELD_NAME_MISSING_KANJI_COUNT,
-        FIELD_NAME_RELATED_KNOWN,
-        FIELD_NAME_RELATED_UNKNOWN,
-        FIELD_NAME_KANJI_MEANINGS,
         FIELD_NAME_CARDS_WITH_KANJI,
         FIELD_NAME_CARDS_WITH_KANJI_KNOWN,
         FIELD_NAME_CARDS_WITH_KANJI_UNKNOWN
     ])
 
-    # Load dictionaries for HTML generation
-    from .dictionary import load_kanji_dictionnary_readings, load_kanji_meanings
-    kanji_readings = load_kanji_dictionnary_readings()
-    kanji_meanings = load_kanji_meanings()
-
     # Update fields for ALL cards (score/unlock for all, position only for new)
-    update_count = update_cards_score(cards, collection, kanji_meanings, kanji_readings, new_card_ids=new_cids, dry_run=dry_run, available_fields=available_fields)
+    update_count = update_cards_score(
+        cards,
+        collection,
+        kanji_meanings={},
+        kanji_readings={},
+        new_card_ids=new_cids,
+        dry_run=dry_run,
+        available_fields=available_fields,
+        update_related_fields=False,
+        update_kanji_meanings_field=False,
+    )
 
     print("=" * 60)
     print(f"Total cards processed: {len(cards)}")

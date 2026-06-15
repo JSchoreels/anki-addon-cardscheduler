@@ -55,6 +55,10 @@ Field "Reading": あたまがいたい
 
 **Format:** The kanji field contains the full text with kanji, and the reading field contains the complete reading in hiragana/katakana.
 
+The reading field can contain multiple readings for the same front. Consecutive kana runs are treated as reading options, so delimiters such as `・`, `、`, commas, or full-width spaces do not need separate configuration.
+
+Attached parenthesized kana prefixes are treated as context, not standalone readings. For example, `はら、(お)なか` is read as `はら` and `なか`.
+
 ## How It Works
 
 Both modes produce the same result:
@@ -79,7 +83,7 @@ PYTHONPATH=/path/to/anki-addon-cardscheduler:$PYTHONPATH python -m unittest card
 
 Expected output:
 ```
-Ran 5 tests in 0.562s
+Ran 10 tests
 OK
 ```
 
@@ -112,6 +116,8 @@ To switch modes:
 Kanji: 学校        Reading: がっこう        → 学校[がっこう] → 学[がく], 校[こう]
 Kanji: 頭が痛い    Reading: あたまがいたい   → 頭が痛い[あたまがいたい] → 頭[あたま], 痛[いた.む], 痛[いた.い]
 Kanji: 大会        Reading: たいかい        → 大会[たいかい] → 大[たい], 会[かい]
+Kanji: 止める      Reading: とどめる・とめる → 止める[とどめる・とめる] → 止[とど], 止[と]
+Kanji: 腹          Reading: はら、(お)なか  → 腹[はら・なか] → 腹[はら], 腹[なか]
 Kanji: もの        Reading: もの            → もの (no brackets) → (no kanji pairs extracted)
 Kanji: は          Reading: は              → は (no brackets) → (no kanji pairs extracted)
 ```

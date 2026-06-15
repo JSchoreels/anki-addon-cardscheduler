@@ -6,6 +6,7 @@ An Anki addon that helps you learn Japanese vocabulary by prioritizing cards bas
 
 - ✅ Attribute a score for word cards by the average interval each kanji has in other cards (with the same readings)
 - ✅ Flag how many unknown readings a word has
+- ✅ Score sentence cards from reviewed vocabulary and kanji-reading familiarity
 - ✅ Smart sorting algorithm that considers:
   - **Unlock potential**: How many cards would be unlocked by learning this kanji
   - **Unlock score impact**: The quality/score of cards that would be unlocked
@@ -23,9 +24,14 @@ An Anki addon that helps you learn Japanese vocabulary by prioritizing cards bas
 ## Documentation
 
 - **[Input Modes](docs/INPUT_MODES.md)** - Configure single-field vs. two-field input formats
+- **[Configuration](docs/CONFIGURATION.md)** - Configure the add-on from Anki
 - **[Simulation Mode](docs/SIMULATION_MODE.md)** - See optimal learning order from scratch
 - **[Unlock Score Impact](docs/UNLOCK_SCORE_IMPACT.md)** - Understanding the unlock potential algorithm
 - **[Menu Actions](docs/MENU_ACTIONS.md)** - Available menu commands
+- **[Reading to Kanji Cards](docs/READING_TO_KANJI_CARDS.md)** - Generate Reading → Kanji cards from known vocabulary
+- **[Sentence Scoring](docs/SENTENCE_SCORING.md)** - Score sentence cards from known vocabulary
+- **[Word Score Benchmark](docs/WORD_SCORE_BENCHMARK.md)** - Measure vocabulary scoring performance on a copied collection
+- **[Sentence Score Benchmark](docs/SENTENCE_SCORE_BENCHMARK.md)** - Measure sentence scoring performance on a copied collection
 - **[Input Modes Test Report](docs/INPUT_MODES_TEST_REPORT.md)** - Test coverage for input modes
 
 ## Project Structure
@@ -47,11 +53,9 @@ An Anki addon that helps you learn Japanese vocabulary by prioritizing cards bas
 
 ## Configuration
 
-Edit `cardscheduler/config.py` to customize:
-
-- **Field names**: Customize which fields store computed values
-- **Simulation mode**: Treat all cards as new to see optimal order
-- **Input mode**: Choose between single-field or two-field format
+Open **Tools → Add-ons → CardScheduler → Config** in Anki to customize deck
+names, field names, input mode, frequency handling, and Reading → Kanji card
+generation. See [Configuration](docs/CONFIGURATION.md) for the common options.
 
 ## Testing
 
