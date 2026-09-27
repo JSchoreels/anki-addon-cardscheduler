@@ -53,63 +53,68 @@ def _build_pair_index(cards, card_to_pairs):
     return index
 
 
-def _can_add_related_card(kanji_reading_map, counts, limit):
-    """Check if a related card can be added without exceeding per-reading limits.
-
-    A card can be added if ANY of its kanji-reading combinations is below the limit.
-
-    Args:
-        kanji_reading_map: Dict mapping kanji to reading for the card
-        counts: Nested dict tracking current counts per kanji per reading
-        limit: Maximum number of cards per kanji-reading combination
-
-    Returns:
-        True if the card can be added, False otherwise.
-    """
-    for kanji, reading in kanji_reading_map.items():
-        if counts.get(kanji, {}).get(reading, 0) < limit:
-            return True
-    return False
-
-
-def _increment_counts(kanji_reading_map, counts):
-    """Increment the count for each kanji-reading pair in a card.
-
-    Args:
-        kanji_reading_map: Dict mapping kanji to reading for the card being added
-        counts: Nested dict to update (kanji -> reading -> count)
-    """
-    for kanji, reading in kanji_reading_map.items():
-        if kanji not in counts:
-            counts[kanji] = {}
-        if reading not in counts[kanji]:
-            counts[kanji][reading] = 0
-        counts[kanji][reading] += 1
-
-
 def compute_related_words(cards, card_to_pairs):
     """Find all cards that share at least one kanji, split by known/unknown.
 
     Stores related cards as data structures (not HTML).
     Limits to RELATED_CARDS_LIMIT_PER_KANJI_READING examples per kanji-reading combination.
 
+    Related cards are ordered by shared kanji count (fewer first), then
+    stability (higher first), then order of discovery. Walking that order, a
+    card is kept if any of its shared kanji, with that card's reading, is still
+    below the limit; known and unknown cards have separate limits.
+
+    Cards sharing a single kanji come first and only use one limit each, so
+    they are the first cards (by stability) of their kanji/reading. Those lists
+    are sorted once for all cards, and only the few cards sharing several kanji
+    need to be looked at one by one.
+
     Args:
         cards: List of CardInfo objects
         card_to_pairs: Pre-computed mapping from card_id to set of kanji[reading] pairs
     """
+    limit = RELATED_CARDS_LIMIT_PER_KANJI_READING
     kanji_index = _build_pair_index(cards, card_to_pairs)
 
-    # Parse every card's pairs once; the loops below revisit the same related
-    # cards many times. Sorting keeps results (and thus note fields) identical
-    # between runs, as set order varies with Python's per-process hashing.
-    parsed_pairs_by_card = {}
-    kanji_set_by_card = {}
+    # Pairs are sorted so results (and thus note fields) are identical between
+    # runs, as set order varies with Python's per-process hashing. When a card
+    # has several readings for one kanji, the last one in sorted order is used.
+    reading_by_card = {}
     for card in cards:
-        parsed_pairs = [
-            parsed for parsed in map(_parse_pair, sorted(card_to_pairs[card.card_id])) if parsed
+        readings = {}
+        for pair in sorted(card_to_pairs[card.card_id]):
+            parsed = _parse_pair(pair)
+            if parsed:
+                readings[parsed[0]] = parsed[1]
+        reading_by_card[card.card_id] = readings
+
+    # Per kanji: the discovery position of each card containing it, and its
+    # cards grouped by reading and known/unknown, in related-card order.
+    position_by_kanji = {}
+    ranked_by_kanji = {}
+    for kanji, cards_by_reading in kanji_index.items():
+        unique = {}
+        for reading_cards in cards_by_reading.values():
+            for card in reading_cards:
+                unique.setdefault(card.card_id, card)
+        position_by_kanji[kanji] = {card_id: i for i, card_id in enumerate(unique)}
+        ranked = {}
+        for card in sorted(unique.values(), key=lambda card: -card.stability):
+            reading = reading_by_card[card.card_id][kanji]
+            known_cards, unknown_cards = ranked.setdefault(reading, ([], []))
+            (known_cards if card.stability > 0 else unknown_cards).append(card)
+        ranked_by_kanji[kanji] = [
+            (reading, known_cards, unknown_cards)
+            for reading, (known_cards, unknown_cards) in ranked.items()
         ]
-        parsed_pairs_by_card[card.card_id] = parsed_pairs
-        kanji_set_by_card[card.card_id] = {kanji for kanji, _ in parsed_pairs}
+
+    # (kanji, kanji) -> cards containing both, to find cards sharing several kanji
+    cards_by_kanji_pair = defaultdict(list)
+    for card in cards:
+        card_kanji = sorted(reading_by_card[card.card_id])
+        for i, first in enumerate(card_kanji):
+            for second in card_kanji[i + 1:]:
+                cards_by_kanji_pair[(first, second)].append(card)
 
     for card_info in cards:
         if not card_info.furigana_text:
@@ -117,48 +122,79 @@ def compute_related_words(cards, card_to_pairs):
             card_info.related_cards_unknown = []
             continue
 
-        current_kanji = kanji_set_by_card[card_info.card_id]
+        own_id = card_info.card_id
+        current_kanji = sorted(reading_by_card[own_id])
+        kanji_rank = {kanji: i for i, kanji in enumerate(current_kanji)}
 
-        # Collect all related cards that share any kanji
-        related_cards_map = {}
-        for kanji in sorted(current_kanji):
-            for reading_cards in kanji_index[kanji].values():
-                for related_card in reading_cards:
-                    if related_card.card_id == card_info.card_id:
-                        continue
-                    if related_card.card_id in related_cards_map:
-                        continue
-                    shared = kanji_set_by_card[related_card.card_id] & current_kanji
-                    if shared:
-                        related_cards_map[related_card.card_id] = (related_card, shared)
+        # Cards sharing several kanji
+        multi_cards = {}
+        for i, first in enumerate(current_kanji):
+            for second in current_kanji[i + 1:]:
+                for card in cards_by_kanji_pair.get((first, second), ()):
+                    if card.card_id != own_id:
+                        multi_cards[card.card_id] = card
 
-        # Sort by: 1) shared kanji count (fewer first), 2) stability (higher first)
-        related_cards_sorted = sorted(
-            related_cards_map.values(),
-            key=lambda item: (len(item[1]), -item[0].stability)
-        )
-
-        # Separate into known/unknown with per-kanji-reading limits
+        # Cards sharing a single kanji: the first ones of each kanji/reading
         counts_known = {}
         counts_unknown = {}
-        known_words = []
-        unknown_words = []
+        single_known = []
+        single_unknown = []
+        for kanji in current_kanji:
+            rank = kanji_rank[kanji]
+            positions = position_by_kanji[kanji]
+            for reading, known_cards, unknown_cards in ranked_by_kanji[kanji]:
+                for ranked_cards, counts, target_list in (
+                    (known_cards, counts_known, single_known),
+                    (unknown_cards, counts_unknown, single_unknown),
+                ):
+                    count = 0
+                    for card in ranked_cards:
+                        card_id = card.card_id
+                        if card_id == own_id or card_id in multi_cards:
+                            continue
+                        target_list.append((
+                            (-card.stability, rank, positions[card_id]),
+                            card,
+                            {kanji},
+                        ))
+                        count += 1
+                        if count == limit:
+                            break
+                    if count:
+                        counts[(kanji, reading)] = count
 
-        for related_card, shared_kanji in related_cards_sorted:
-            is_known = related_card.stability > 0
-            counts = counts_known if is_known else counts_unknown
-            target_list = known_words if is_known else unknown_words
+        single_known.sort(key=lambda item: item[0])
+        single_unknown.sort(key=lambda item: item[0])
+        known_words = [(card, shared) for _, card, shared in single_known]
+        unknown_words = [(card, shared) for _, card, shared in single_unknown]
 
-            # Get kanji->reading mapping for shared kanji only
-            kanji_reading_map = {
-                kanji: reading
-                for kanji, reading in parsed_pairs_by_card[related_card.card_id]
-                if kanji in shared_kanji
-            }
+        if multi_cards:
+            current_set = set(current_kanji)
+            multi_related = []
+            for card_id, card in multi_cards.items():
+                shared = reading_by_card[card_id].keys() & current_set
+                first = min(shared, key=kanji_rank.__getitem__)
+                multi_related.append((
+                    (len(shared), -card.stability, kanji_rank[first],
+                     position_by_kanji[first][card_id]),
+                    card,
+                    shared,
+                ))
+            multi_related.sort(key=lambda item: item[0])
 
-            if _can_add_related_card(kanji_reading_map, counts, RELATED_CARDS_LIMIT_PER_KANJI_READING):
-                _increment_counts(kanji_reading_map, counts)
-                target_list.append((related_card, shared_kanji))
+            for _, card, shared in multi_related:
+                if card.stability > 0:
+                    counts = counts_known
+                    target_list = known_words
+                else:
+                    counts = counts_unknown
+                    target_list = unknown_words
+                readings = reading_by_card[card.card_id]
+                keys = [(kanji, readings[kanji]) for kanji in shared]
+                if any(counts.get(key, 0) < limit for key in keys):
+                    for key in keys:
+                        counts[key] = counts.get(key, 0) + 1
+                    target_list.append((card, shared))
 
         card_info.related_cards_known = known_words
         card_info.related_cards_unknown = unknown_words

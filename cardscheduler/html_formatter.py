@@ -14,6 +14,16 @@ HIGHLIGHT_COLORS = [
     'lightcoral', 'lightseagreen', 'plum', 'peachpuff'
 ]
 
+# Furigana element: kanji (not kana) followed by [reading]
+_FURIGANA_PATTERN = re.compile(r'([一-龯々]+)\[([ぁ-ゖァ-ヺー]+)\]')
+
+# Kanji[reading] optionally followed by trailing kana, e.g. "同[おな]じ" or "同[おな]"
+_KANJI_WITH_KANA = r'[一-龯々]+\[[ぁ-ゖァ-ヺー]+\][ぁ-ゖァ-ヺー]*'
+# Plain kana (hiragana/katakana)
+_KANA = r'[ぁ-ゖァ-ヺー]+'
+_KANA_SPACE_KANJI_PATTERN = re.compile(rf'({_KANA})\s+({_KANJI_WITH_KANA})')
+_KANJI_SPACE_KANA_PATTERN = re.compile(rf'({_KANJI_WITH_KANA})\s+({_KANA})')
+
 
 class HighlightCache:
     """Memoized highlighting results, valid for a single kanji_readings dict.
@@ -25,6 +35,7 @@ class HighlightCache:
     def __init__(self):
         self.highlighted = {}
         self.reading_parts = {}
+        self.normalized = {}
 
 
 def format_card_html(card_info, kanji_meanings, kanji_readings, cache=None):
@@ -96,17 +107,31 @@ def _format_related_words(related_cards_list, kanji_to_color, kanji_readings, ca
 
     html_parts = []
     for related_card, shared_kanji in related_cards_list:
-        shared_colors = {
-            kanji: kanji_to_color.get(kanji)
-            for kanji in shared_kanji
-            if kanji in kanji_to_color
-        }
+        if len(shared_kanji) == 1:
+            # Most related cards share a single kanji; skip building a frozenset key
+            for kanji in shared_kanji:
+                color = kanji_to_color.get(kanji)
+            if color is None:
+                shared_colors = {}
+                cache_key = (related_card.furigana_text, frozenset())
+            else:
+                shared_colors = {kanji: color}
+                cache_key = (related_card.furigana_text, kanji, color)
+        else:
+            shared_colors = {
+                kanji: kanji_to_color.get(kanji)
+                for kanji in shared_kanji
+                if kanji in kanji_to_color
+            }
+            cache_key = (related_card.furigana_text, frozenset(shared_colors.items()))
 
-        cache_key = (related_card.furigana_text, frozenset(shared_colors.items()))
         highlighted = cache.highlighted.get(cache_key)
         if highlighted is None:
             # Normalize spacing before highlighting
-            normalized_text = _normalize_spacing(related_card.furigana_text)
+            normalized_text = cache.normalized.get(related_card.furigana_text)
+            if normalized_text is None:
+                normalized_text = _normalize_spacing(related_card.furigana_text)
+                cache.normalized[related_card.furigana_text] = normalized_text
 
             highlighted = _highlight_shared_kanji(
                 normalized_text,
@@ -138,19 +163,13 @@ def _normalize_spacing(furigana_text):
     if not furigana_text:
         return furigana_text
 
-    # Pattern for kanji[reading] optionally followed by trailing kana
-    # E.g., "同[おな]じ" or just "同[おな]"
-    kanji_with_kana_pattern = r'[一-龯々]+\[[ぁ-ゖァ-ヺー]+\][ぁ-ゖァ-ヺー]*'
-    # Pattern for plain kana (hiragana/katakana)
-    kana_pattern = r'[ぁ-ゖァ-ヺー]+'
-
     # Remove space between kana and kanji[reading]
     # Example: "と 同[おな]じ" → "と同[おな]じ"
-    result = re.sub(rf'({kana_pattern})\s+({kanji_with_kana_pattern})', r'\1\2', furigana_text)
+    result = _KANA_SPACE_KANJI_PATTERN.sub(r'\1\2', furigana_text)
 
     # Remove space between kanji[reading](+kana) and kana
     # Example: "同[おな]じ ように" → "同[おな]じように"
-    result = re.sub(rf'({kanji_with_kana_pattern})\s+({kana_pattern})', r'\1\2', result)
+    result = _KANJI_SPACE_KANA_PATTERN.sub(r'\1\2', result)
 
     return result
 
@@ -168,14 +187,10 @@ def _add_spacing_before_furigana(text):
     if not text:
         return text
 
-    # Pattern to match furigana elements: kanji[reading]
-    # Only match kanji (not kana) before the bracket
-    pattern = r'([一-龯々]+)\[([ぁ-ゖァ-ヺー]+)\]'
-
     result = []
     last_end = 0
 
-    for match in re.finditer(pattern, text):
+    for match in _FURIGANA_PATTERN.finditer(text):
         # Get text before this furigana element
         before_text = text[last_end:match.start()]
         result.append(before_text)
@@ -247,14 +262,10 @@ def _highlight_shared_kanji(furigana_text, shared_kanji_colors, kanji_readings, 
         return furigana_text
 
     # Parse the furigana text to extract all parts (kanji[reading] and plain kana)
-    # Pattern matches: kanji (or kanji+iteration marks) followed by [reading]
-    # Only matches kanji characters (not kana) before the bracket
-    pattern = r'([一-龯々]+)\[([ぁ-ゖァ-ヺー]+)\]'
-
     result = []
     last_end = 0
 
-    for match in re.finditer(pattern, furigana_text):
+    for match in _FURIGANA_PATTERN.finditer(furigana_text):
         # Add any plain text before this match (trailing kana, etc.)
         if match.start() > last_end:
             result.append(furigana_text[last_end:match.start()])
