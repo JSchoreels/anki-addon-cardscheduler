@@ -1,7 +1,11 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from cardscheduler.sentence_morphology import MecabTokenAnalyzer, SentenceToken
+from cardscheduler.sentence_morphology import (
+    MecabTokenAnalyzer,
+    SentenceToken,
+    SurfaceToken,
+)
 
 
 def analyzer_with_base_cmd():
@@ -10,6 +14,7 @@ def analyzer_with_base_cmd():
     analyzer.base_cmd = ["mecab"]
     analyzer.encoding = "utf-8"
     analyzer._token_cache = {}
+    analyzer._surface_token_cache = {}
     return analyzer
 
 
@@ -69,6 +74,24 @@ class TestSentenceMorphology(unittest.TestCase):
             ],
         )
         run_mock.assert_called_once()
+
+    def test_extract_surface_tokens_many_keeps_non_kanji_boundaries(self):
+        completed_process = Mock(
+            returncode=0,
+            stdout=(
+                "優しい\t形容詞\t優しい\tヤサシイ\n"
+                "声\t名詞\t声\tコエ\n"
+                "EOS\n"
+            ),
+        )
+
+        with patch("cardscheduler.sentence_morphology.subprocess.run", return_value=completed_process):
+            tokens = analyzer_with_base_cmd().extract_surface_tokens_many(["優しい声"])
+
+        self.assertEqual(
+            tokens["優しい声"],
+            [SurfaceToken("優しい", "形容詞"), SurfaceToken("声", "名詞")],
+        )
 
 
 if __name__ == "__main__":

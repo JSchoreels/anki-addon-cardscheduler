@@ -259,7 +259,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = 'といっても過言ではない[といってもかごんではない]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'過[ ]', '言[ ]'})
+        self.assertSetEqual(pairs, {'過[か]', '言[ごん]'})
 
     def test_onsha(self):
         text = '御社[おんしゃ]'
@@ -271,7 +271,7 @@ class TestKanjiReadingPairs(unittest.TestCase):
         text = 'ブドウ酒[ブドウしゅ]'
         pairs = get_kanji_reading_pairs(text, self.kanji_readings)
         print(f"Actual pairs for {text}: {pairs}")
-        self.assertSetEqual(pairs, {'酒[ ]'})
+        self.assertSetEqual(pairs, {'酒[しゅ]'})
 
     def test_shitsuren(self):
         text = '失恋[しつれん]'

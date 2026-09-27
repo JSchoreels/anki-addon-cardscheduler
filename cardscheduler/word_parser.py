@@ -180,8 +180,9 @@ def split_reading_with_positions(kanji_word, reading, kanji_readings):
 
     for i, (pos, kanji) in enumerate(zip(kanji_positions, kanji_chars)):
         if i == 0:
-            # First kanji: reading starts from beginning
-            reading_index = 0
+            # Skip a matching kana prefix before the first kanji.
+            leading_kana = kanji_word[:pos]
+            reading_index = len(leading_kana) if reading.startswith(leading_kana) else 0
         else:
             # Calculate how much kana is between previous kanji and this one
             prev_kanji_pos = kanji_positions[i-1]

@@ -66,6 +66,11 @@ Optional fields:
 
 ### Menu: Tools > CardScheduler
 
+**Settings**
+- Opens a native UI for every CardScheduler option
+- Also available from Add-ons → CardScheduler → Config
+- Requires a full Anki restart after saving
+
 **Compute Scores**
 - Updates all score fields
 - Does NOT change card order
@@ -73,6 +78,16 @@ Optional fields:
 **Compute and Reposition Cards**
 - Updates all score fields
 - Reorders NEW cards by optimal learning order
+
+### Automatic Processing
+
+By default, opening an Anki profile and entering a new scheduler day each
+schedule one background refresh after a short delay. The triggers can be enabled
+independently. Reviews and note additions do not run the processor. The automatic
+refresh updates scores, related words, kanji meanings, and the new-card order
+according to the checkboxes in **CardScheduler: Settings**.
+
+Reading→Kanji generation and sentence scoring remain manual.
 
 **Compute Sentence Scores**
 - Updates sentence score fields and global sentence positions
@@ -85,18 +100,32 @@ Optional fields:
 ### Recommended Workflow
 
 1. Add required fields to your note type
-2. Run "Compute Scores" to verify setup
-3. Run "Compute and Reposition Cards" to reorder new cards
-4. Re-run periodically after reviews (weekly or after adding cards)
+2. Open **CardScheduler: Settings** and verify the deck and input fields
+3. Fully quit and reopen Anki after saving settings
+4. Let the startup refresh complete
+5. Use the manual actions whenever you want an extra refresh during the day
 
 ## How Scoring Works
 
 ```
-Card Score = min(weighted_interval of each kanji-reading pair)
+Base score = min(weighted_interval of each canonical kanji-reading family)
+Card score = base score × contextual reading-ambiguity factor
 ```
 
-- Known kanji → higher score → learn first
-- Unknown kanji → score = 0 → sorted by unlock potential
+- Rendaku and sokuon forms share evidence with their canonical reading instead
+  of being treated as completely unrelated readings.
+- A family used almost evenly across multiple forms receives a larger handicap
+  than a family dominated by one form.
+- Visible syntax and phonology can lift the handicap. For example, a separate
+  noun after an adjective blocks rendaku, and a word-final reading cannot end in
+  a lexical sokuon.
+- Sokuon receives partial relief when the following voiceless K/S/T/P onset and
+  the observed same-token examples make the realization predictable. Voiced
+  G/Z/D/B onsets are kept separate.
+- Unknown kanji still leave the persisted score at `0`. For ordering only, those
+  cards receive a positive shadow priority derived from their existing fallback
+  metrics and multiplied by the same ambiguity factor. They remain below every
+  card with genuine positive familiarity evidence.
 
 ## Configuration
 

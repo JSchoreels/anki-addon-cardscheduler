@@ -30,6 +30,7 @@ class FakeCollection:
     def __init__(self, card):
         self._card = card
         self.updated_notes = []
+        self.searches = []
 
     def get_card(self, _card_id):
         return self._card
@@ -38,6 +39,7 @@ class FakeCollection:
         self.updated_notes.append(note)
 
     def find_cards(self, _query):
+        self.searches.append(_query)
         return []
 
 
@@ -243,6 +245,31 @@ class TestRelatedWordsProcessing(unittest.TestCase):
         kwargs = update_cards_score_mock.call_args.kwargs
         self.assertFalse(kwargs["update_related_fields"])
         self.assertFalse(kwargs["update_kanji_meanings_field"])
+
+    @patch("cardscheduler.anki_interface.DECK_NAME", "Custom::Vocabulary")
+    @patch("cardscheduler.anki_interface.update_cards_score", return_value=0)
+    @patch("cardscheduler.anki_interface.detect_available_fields", return_value=set())
+    @patch("cardscheduler.anki_interface.print_scores")
+    @patch("cardscheduler.anki_interface.assign_positions_to_new_cards")
+    @patch("cardscheduler.anki_interface.compute_scores")
+    @patch("cardscheduler.anki_interface.load_cards", return_value=[])
+    def test_process_collection_uses_configured_deck_for_new_cards(
+        self,
+        _load_cards_mock,
+        _compute_scores_mock,
+        _assign_positions_mock,
+        _print_scores_mock,
+        _detect_fields_mock,
+        _update_cards_score_mock,
+    ):
+        collection = FakeCollection(FakeCard(FakeNote([])))
+
+        process_collection(
+            collection=collection,
+            show_summary=False,
+        )
+
+        self.assertIn('"deck:Custom::Vocabulary" is:new', collection.searches)
 
     @patch("cardscheduler.anki_interface.showInfo")
     @patch("cardscheduler.anki_interface.update_card_fields", return_value=True)

@@ -29,6 +29,7 @@ from .config import (
 )
 from .dictionary import load_kanji_dictionnary_readings
 from .scheduler import (
+    apply_reading_ambiguity,
     assign_positions_to_new_cards,
     build_card_to_pairs,
     build_kanji_to_cards_mapping,
@@ -116,6 +117,9 @@ def compute_word_scores_for_benchmark(cards, timer=None):
 
     with timer.measure("update_card_unlock_metrics"):
         update_card_unlock_metrics(cards, card_to_pairs, kanji_reading_to_cards)
+
+    with timer.measure("apply_reading_ambiguity"):
+        apply_reading_ambiguity(cards, kanji_readings)
 
     return WordScoreStats(
         kanji_reading_pairs=len(kanji_reading_to_cards),

@@ -24,6 +24,15 @@
   "no_kanji_merge_mode": "NO_KANJI_ZIPPED",
   "no_kanji_frequency_field": "Frequency",
   "no_kanji_frequency_type": "RANK",
+  "automatic_processing": {
+    "enabled": true,
+    "run_on_startup": true,
+    "run_on_new_day": true,
+    "update_scores": true,
+    "update_related_words": true,
+    "reposition_new_cards": true,
+    "delay_ms": 1500
+  },
   "reading_to_kanji_cards": {
     "deck_name": "Japan::4. Recall::Reading->Kanji",
     "note_type": "CardScheduler Reading->Kanji",

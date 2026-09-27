@@ -1,4 +1,4 @@
-from aqt import mw
+from aqt import gui_hooks, mw
 from aqt.qt import QAction
 from anki.notes import Note
 from anki.cards import Card
@@ -11,11 +11,24 @@ from .cardscheduler import (
     process_related_words,
     process_sentence_scores,
 )
+from .cardscheduler.automatic_processing import register_automatic_processing
+from .cardscheduler.settings_dialog import open_settings_dialog
+
+
+_automatic_processing_controller = None
 
 if 'pytest' not in sys.modules:
     # Create menu items in the Tools menu
     # Only run when loaded by Anki (mw is not None)
     if mw is not None:
+        action_settings = QAction("CardScheduler: Settings", mw)
+        action_settings.triggered.connect(lambda: open_settings_dialog(__name__))
+        mw.form.menuTools.addAction(action_settings)
+        mw.addonManager.setConfigAction(
+            __name__,
+            lambda: open_settings_dialog(__name__),
+        )
+
         # Action 1: Compute only (update fields but don't reposition)
         action_compute = QAction("CardScheduler: Compute Scores", mw)
         action_compute.triggered.connect(lambda: process_collection(reposition=False))
@@ -69,3 +82,9 @@ if 'pytest' not in sys.modules:
         )
         action_all.triggered.connect(lambda: process_all_features())
         mw.form.menuTools.addAction(action_all)
+
+        _automatic_processing_controller = register_automatic_processing(
+            mw,
+            gui_hooks.profile_did_open,
+            gui_hooks.day_did_change,
+        )

@@ -4,7 +4,8 @@ An Anki addon that helps you learn Japanese vocabulary by prioritizing cards bas
 
 ## Features
 
-- ✅ Attribute a score for word cards by the average interval each kanji has in other cards (with the same readings)
+- ✅ Score word cards from canonical kanji-reading familiarity, with observed
+  rendaku/sokuon ambiguity and linguistic context factored into difficulty
 - ✅ Flag how many unknown readings a word has
 - ✅ Score sentence cards from reviewed vocabulary and kanji-reading familiarity
 - ✅ Smart sorting algorithm that considers:
@@ -18,8 +19,14 @@ An Anki addon that helps you learn Japanese vocabulary by prioritizing cards bas
 1. Copy the entire addon directory to your Anki addons folder
 2. Restart Anki
 3. The addon will add menu items under **Tools**:
+   - "CardScheduler: Settings" - Configure the complete add-on through a native UI
    - "CardScheduler: Compute Scores" - Update card fields with scores
    - "CardScheduler: Compute and Reposition Cards" - Update scores and reposition new cards
+
+CardScheduler can automatically refresh scores, related words, kanji meanings,
+and new-card positions once when an Anki profile opens and once when Anki enters
+a new scheduler day. Configure either trigger independently from **Tools →
+CardScheduler: Settings**.
 
 ## Documentation
 
@@ -53,9 +60,10 @@ An Anki addon that helps you learn Japanese vocabulary by prioritizing cards bas
 
 ## Configuration
 
-Open **Tools → Add-ons → CardScheduler → Config** in Anki to customize deck
-names, field names, input mode, frequency handling, and Reading → Kanji card
-generation. See [Configuration](docs/CONFIGURATION.md) for the common options.
+Open **Tools → CardScheduler: Settings** or **Tools → Add-ons → CardScheduler →
+Config** to customize deck names, every field name, automatic processing, input
+mode, frequency handling, Reading → Kanji generation, and sentence scoring. See
+[Configuration](docs/CONFIGURATION.md) for the complete options.
 
 ## Testing
 
@@ -69,10 +77,13 @@ Test outputs are written to the `test_output/` directory.
 
 ## How It Works
 
-1. **Score Computation**: Each card gets a familiarity score based on the stability/interval of its kanji/reading pairs
+1. **Score Computation**: Each card gets a familiarity score based on the
+   stability/interval of its canonical kanji-reading families. Observed reading
+   variants add an entropy-based handicap unless the word context resolves them.
 2. **Unlock Potential**: Calculates how many other cards would become learnable by studying this card
 3. **Position Assignment**: New cards are sorted by:
    - Score (higher = more familiar)
+   - Reading ambiguity, including score-zero cards through a separate shadow priority
    - Unlock potential (more cards unlocked)
    - Unlock median score increase (higher quality unlocks)
    - Missing kanji count (fewer missing)

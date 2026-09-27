@@ -2,18 +2,25 @@ import json
 import tempfile
 import unittest
 
-from cardscheduler.anki_config_adapter import load_anki_addon_config
-from cardscheduler.config import _load_config
+from cardscheduler.anki_config_adapter import (
+    load_anki_addon_config,
+    write_anki_addon_config,
+)
+from cardscheduler.config import _load_config, get_default_config, validate_config
 
 
 class FakeAddonManager:
     def __init__(self, configs):
         self.configs = configs
         self.requested_module_names = []
+        self.written_configs = []
 
     def getConfig(self, module_name):
         self.requested_module_names.append(module_name)
         return self.configs.get(module_name)
+
+    def writeConfig(self, module_name, config):
+        self.written_configs.append((module_name, config))
 
 
 class FakeMw:
@@ -55,6 +62,21 @@ class TestAnkiConfigAdapter(unittest.TestCase):
                 "123456.cardscheduler.config",
                 mw_instance=FakeMw(addon_manager),
             )
+        )
+
+    def test_writes_config_for_addon_package_name(self):
+        addon_manager = FakeAddonManager({})
+        config = {"deck_name": "Japanese"}
+
+        write_anki_addon_config(
+            "123456.cardscheduler.settings_dialog",
+            config,
+            mw_instance=FakeMw(addon_manager),
+        )
+
+        self.assertEqual(
+            addon_manager.written_configs,
+            [("123456", config)],
         )
 
     def test_load_config_prefers_anki_config(self):
@@ -115,6 +137,46 @@ class TestAnkiConfigAdapter(unittest.TestCase):
         self.assertIn(
             "Japan::2. Sentences",
             config["sentence_scoring"]["deck_names"],
+        )
+
+    def test_legacy_automatic_config_gains_lifecycle_trigger_defaults(self):
+        config = _load_config(
+            config_path="/tmp/card_scheduler_missing_config.json",
+            anki_config_loader=lambda _module_name: {
+                "automatic_processing": {
+                    "update_scores": False,
+                },
+            },
+        )
+
+        self.assertFalse(config["automatic_processing"]["update_scores"])
+        self.assertTrue(config["automatic_processing"]["run_on_startup"])
+        self.assertTrue(config["automatic_processing"]["run_on_new_day"])
+
+    def test_default_config_includes_automatic_processing(self):
+        config = get_default_config()
+
+        self.assertTrue(config["automatic_processing"]["enabled"])
+        self.assertTrue(config["automatic_processing"]["run_on_startup"])
+        self.assertTrue(config["automatic_processing"]["run_on_new_day"])
+        self.assertTrue(config["automatic_processing"]["update_scores"])
+        self.assertTrue(config["automatic_processing"]["update_related_words"])
+        self.assertTrue(config["automatic_processing"]["reposition_new_cards"])
+
+    def test_validate_config_accepts_defaults(self):
+        self.assertEqual(validate_config(get_default_config()), [])
+
+    def test_validate_config_reports_invalid_user_values(self):
+        config = get_default_config()
+        config["deck_name"] = ""
+        config["automatic_processing"]["delay_ms"] = 60001
+
+        errors = validate_config(config)
+
+        self.assertIn("Vocabulary deck cannot be empty.", errors)
+        self.assertIn(
+            "Automatic processing delay must be between 0 and 60000 ms.",
+            errors,
         )
 
 

@@ -7,6 +7,7 @@ Outside Anki, loads settings from cardscheduler/config.json if present.
 
 import json
 import os
+from copy import deepcopy
 
 from .anki_config_adapter import load_anki_addon_config
 
@@ -55,6 +56,17 @@ _DEFAULTS = {
     "no_kanji_frequency_field": "Frequency",
     "no_kanji_frequency_type": "RANK",
 
+    # Automatically refresh vocabulary data at selected lifecycle events.
+    "automatic_processing": {
+        "enabled": True,
+        "run_on_startup": True,
+        "run_on_new_day": True,
+        "update_scores": True,
+        "update_related_words": True,
+        "reposition_new_cards": True,
+        "delay_ms": 1500,
+    },
+
     # Generated Reading -> Kanji cards
     "reading_to_kanji_cards": {
         "deck_name": "Japan::4. Recall::Reading->Kanji",
@@ -90,22 +102,94 @@ _DEFAULTS = {
 }
 
 
+def get_default_config():
+    """Return an independent copy of the complete default configuration."""
+    return deepcopy(_DEFAULTS)
+
+
+def normalize_config(config):
+    """Merge a partial configuration over all current defaults."""
+    return _merge_config(get_default_config(), config or {})
+
+
+def validate_config(config):
+    """Return user-facing validation errors for a complete configuration."""
+    config = normalize_config(config)
+    errors = []
+
+    def require_text(value, label):
+        if not isinstance(value, str) or not value.strip():
+            errors.append(f"{label} cannot be empty.")
+
+    require_text(config["deck_name"], "Vocabulary deck")
+
+    if config["input_mode"] not in {"single", "two"}:
+        errors.append("Input mode must be 'single' or 'two'.")
+    if config["input_mode"] == "single":
+        require_text(config["input_fields"]["single"], "Single input field")
+    else:
+        require_text(config["input_fields"]["kanji"], "Kanji input field")
+        require_text(config["input_fields"]["reading"], "Reading input field")
+
+    for key, value in config["field_names"].items():
+        require_text(value, f"Vocabulary output field '{key}'")
+
+    if config["no_kanji_merge_mode"] not in {
+        "NO_KANJI_BEFORE",
+        "NO_KANJI_AFTER",
+        "NO_KANJI_ZIPPED",
+    }:
+        errors.append("Kana-only merge mode is invalid.")
+    if str(config["no_kanji_frequency_type"]).upper() not in {
+        "RANK",
+        "FREQUENCY",
+    }:
+        errors.append("Kana-only frequency type must be RANK or FREQUENCY.")
+
+    automatic = config["automatic_processing"]
+    if not isinstance(automatic["delay_ms"], int) or not (
+        0 <= automatic["delay_ms"] <= 60000
+    ):
+        errors.append("Automatic processing delay must be between 0 and 60000 ms.")
+
+    reading = config["reading_to_kanji_cards"]
+    require_text(reading["note_type"], "Reading→Kanji note type")
+    if not isinstance(reading["max_grade"], int) or not (
+        1 <= reading["max_grade"] <= 99
+    ):
+        errors.append("Reading→Kanji maximum grade must be between 1 and 99.")
+    for key, value in reading["field_names"].items():
+        require_text(value, f"Reading→Kanji field '{key}'")
+
+    sentence = config["sentence_scoring"]
+    if not sentence["deck_names"] or not all(
+        isinstance(deck, str) and deck.strip() for deck in sentence["deck_names"]
+    ):
+        errors.append("At least one non-empty sentence deck is required.")
+    require_text(sentence["note_type"], "Sentence note type")
+    require_text(sentence["sentence_field"], "Sentence text field")
+    for key, value in sentence["field_names"].items():
+        require_text(value, f"Sentence output field '{key}'")
+
+    return errors
+
+
 def _load_config(
     config_path=LOCAL_CONFIG_PATH,
     anki_config_loader=load_anki_addon_config,
 ):
     """Load config from Anki or local JSON, falling back to defaults."""
-    config = _merge_config({}, _DEFAULTS)
+    config = get_default_config()
     anki_config = anki_config_loader(__name__)
 
     if anki_config is not None:
-        return _merge_config(config, anki_config)
+        return normalize_config(anki_config)
 
     if os.path.exists(config_path):
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 user_config = json.load(f)
-            config = _merge_config(config, user_config)
+            config = normalize_config(user_config)
         except (json.JSONDecodeError, IOError) as e:
             print(f"CardScheduler: Error loading config.json: {e}")
 
@@ -162,6 +246,13 @@ NO_KANJI_FREQUENCY_TYPE_RANK = "RANK"
 NO_KANJI_FREQUENCY_TYPE_FREQUENCY = "FREQUENCY"
 NO_KANJI_FREQUENCY_FIELD = _config["no_kanji_frequency_field"]
 NO_KANJI_FREQUENCY_TYPE = str(_config["no_kanji_frequency_type"]).upper()
+
+AUTOMATIC_PROCESSING_CONFIG = _config["automatic_processing"]
+AUTOMATIC_PROCESSING_ENABLED = AUTOMATIC_PROCESSING_CONFIG["enabled"]
+AUTOMATIC_UPDATE_SCORES = AUTOMATIC_PROCESSING_CONFIG["update_scores"]
+AUTOMATIC_UPDATE_RELATED_WORDS = AUTOMATIC_PROCESSING_CONFIG["update_related_words"]
+AUTOMATIC_REPOSITION_NEW_CARDS = AUTOMATIC_PROCESSING_CONFIG["reposition_new_cards"]
+AUTOMATIC_PROCESSING_DELAY_MS = AUTOMATIC_PROCESSING_CONFIG["delay_ms"]
 
 READING_TO_KANJI_CONFIG = _config["reading_to_kanji_cards"]
 READING_TO_KANJI_DECK_NAME = READING_TO_KANJI_CONFIG["deck_name"]

@@ -22,6 +22,14 @@ class SentenceToken:
     pos: str
 
 
+@dataclass(frozen=True)
+class SurfaceToken:
+    """A MeCab token retaining only the surface text and part of speech."""
+
+    surface: str
+    pos: str
+
+
 def contains_kanji(text):
     return bool(KANJI_PATTERN.search(text or ""))
 
@@ -57,6 +65,7 @@ class MecabTokenAnalyzer:
         self.base_cmd = None
         self.encoding = "utf-8"
         self._token_cache = {}
+        self._surface_token_cache = {}
         self.setup()
 
     @property
@@ -138,10 +147,34 @@ class MecabTokenAnalyzer:
             for text in cache_keys
         }
 
+    def extract_surface_tokens_many(self, texts):
+        """Return every MeCab token needed for surface-boundary analysis."""
+        cache_keys = [self._cache_key(text) for text in texts]
+        if not self.available:
+            return {text: [] for text in cache_keys}
+
+        uncached = []
+        seen = set()
+        for text in cache_keys:
+            if text in self._surface_token_cache or text in seen:
+                continue
+            uncached.append(text)
+            seen.add(text)
+
+        if uncached:
+            self._extract_uncached_many(uncached)
+
+        return {
+            text: list(self._surface_token_cache.get(text, ()))
+            for text in cache_keys
+        }
+
     def _cache_key(self, text):
         return (text or "").strip()
 
     def _extract_uncached_many(self, texts):
+        if not hasattr(self, "_surface_token_cache"):
+            self._surface_token_cache = {}
         try:
             result = self._run_mecab(texts)
         except subprocess.TimeoutExpired:
@@ -173,6 +206,9 @@ class MecabTokenAnalyzer:
         for index, text in enumerate(texts):
             lines = token_groups[index] if index < len(token_groups) else []
             self._token_cache[text] = tuple(self._parse_token_lines(lines))
+            self._surface_token_cache[text] = tuple(
+                self._parse_surface_token_lines(lines)
+            )
 
     def _run_mecab(self, texts):
         input_text = "\n".join(text.replace("\n", " ") for text in texts) + "\n"
@@ -233,6 +269,23 @@ class MecabTokenAnalyzer:
 
         return tokens
 
+    def _parse_surface_token_lines(self, lines):
+        tokens = []
+        for line in lines:
+            if not line.strip():
+                continue
+
+            parts = line.split("\t")
+            if len(parts) < 2:
+                continue
+
+            surface, pos = parts[:2]
+            if surface:
+                tokens.append(SurfaceToken(surface=surface, pos=pos))
+
+        return tokens
+
     def _cache_empty(self, texts):
         for text in texts:
             self._token_cache[text] = ()
+            self._surface_token_cache[text] = ()

@@ -2,12 +2,33 @@
 
 The CardScheduler add-on adds these menu items to Anki's **Tools** menu:
 
+## CardScheduler: Settings
+
+Opens the native tabbed settings dialog. It covers the vocabulary deck and
+input mode, automatic processing, every output field, Reading→Kanji generation,
+and sentence scoring. The same dialog opens from **Add-ons → CardScheduler →
+Config**. Fully quit and reopen Anki after saving.
+
+## Scheduled Automatic Processing
+
+When enabled, opening an Anki profile or entering a new scheduler day can start
+one background refresh. Each lifecycle trigger is independently configurable.
+Reviews and note additions do not start processing. The enabled automation
+options can refresh score fields, related words and kanji meanings, and the exact
+new-card order.
+
+Reading→Kanji generation and sentence scoring remain manual because they update
+separate decks and note types.
+
 ## 1. CardScheduler: Compute Scores
 
 **What it does:**
-- Computes familiarity scores for **all cards** based on kanji knowledge
+- Computes familiarity scores for **all cards** from canonical kanji-reading
+  knowledge and context-sensitive rendaku/sokuon ambiguity
 - Calculates unlock potential (how many other cards each word would unlock)
 - Assigns learning order positions (1 = highest priority) **only to NEW cards**
+- Applies ambiguity to the fallback priority of score-zero kanji cards without
+  promoting them above cards with positive familiarity evidence
 - Updates three custom fields in your notes:
   - `CardScheduler.Position` - Learning order (1, 2, 3...) **[NEW cards only, cleared for non-new cards]**
   - `CardScheduler.Score` - Familiarity score **[All cards]**
@@ -215,12 +236,14 @@ When you use **"Compute and Reposition Cards"**:
 3. Check the browser to see the computed values
 
 **Regular use:**
-1. Run **"Compute and Reposition Cards"** when you:
+1. Leave the desired startup and new-day triggers enabled to refresh vocabulary
+   fields at predictable boundaries.
+2. Run **"Compute and Reposition Cards"** manually when you:
    - Add new cards to the deck
    - Want to refresh the learning order
    - Complete some reviews (scores will have changed)
-2. Run **"Compute Related Words"** when you want related display fields refreshed.
-3. Run the full workflow action when you want score fields, related fields, card
+3. Run **"Compute Related Words"** when you want a manual related-field refresh.
+4. Run the full workflow action when you want score fields, related fields, card
    ordering, and Reading -> Kanji cards refreshed together.
 
 **Frequency:**

@@ -23,6 +23,8 @@ class TestWordScoreBenchmark(unittest.TestCase):
         self.assertGreater(stats.unique_kanji, 0)
         self.assertEqual(stats.reviewed_cards, 2)
         self.assertGreater(cards[0].score, 0)
+        self.assertIsNotNone(cards[0].base_score)
+        self.assertLessEqual(cards[0].score, cards[0].base_score)
         self.assertGreaterEqual(cards[1].unlock_potential, 0)
 
     def test_result_reports_total_seconds(self):

@@ -689,13 +689,14 @@ def reposition_new_cards(cards, collection):
     return len(sorted_card_ids)
 
 
-def process_related_words(collection=None, dry_run=False):
+def process_related_words(collection=None, dry_run=False, show_summary=True):
     """
     Process cards to compute and update related-word display fields.
 
     Args:
         collection: Anki collection (defaults to mw.col)
         dry_run: If True, don't actually update cards
+        show_summary: If True, show the completion dialog
     """
     if not collection:
         collection = mw.col
@@ -740,7 +741,8 @@ def process_related_words(collection=None, dry_run=False):
     message += f"  - {FIELD_NAME_RELATED_KNOWN}\n"
     message += f"  - {FIELD_NAME_RELATED_UNKNOWN}\n"
     message += f"  - {FIELD_NAME_KANJI_MEANINGS}"
-    showInfo(message)
+    if show_summary:
+        showInfo(message)
     return update_count
 
 
@@ -856,7 +858,12 @@ def process_all_features(collection=None, dry_run=False):
     return process_reading_to_kanji_cards(collection=collection, dry_run=dry_run)
 
 
-def process_collection(collection=None, dry_run=False, reposition=False):
+def process_collection(
+    collection=None,
+    dry_run=False,
+    reposition=False,
+    show_summary=True,
+):
     """
     Process cards to compute scores, unlock potential, and positions.
 
@@ -864,6 +871,7 @@ def process_collection(collection=None, dry_run=False, reposition=False):
         collection: Anki collection (defaults to mw.col)
         dry_run: If True, don't actually update cards
         reposition: If True, also reposition new cards based on computed positions
+        show_summary: If True, show the completion dialog
     """
     if not collection:
         collection = mw.col
@@ -887,7 +895,7 @@ def process_collection(collection=None, dry_run=False, reposition=False):
     if SIMULATE_ZERO_STABILITY:
         new_cids = set(c.card_id for c in cards)
     else:
-        new_cids = set(collection.find_cards('"deck:Japan::1. Vocabulary" is:new'))
+        new_cids = set(collection.find_cards(f'"deck:{DECK_NAME}" is:new'))
 
     # Assign positions only to new cards (or all cards in simulation mode)
     assign_positions_to_new_cards(cards, new_cids)
@@ -945,19 +953,22 @@ def process_collection(collection=None, dry_run=False, reposition=False):
         reposition_count = reposition_new_cards(cards, collection)
         print(f"\nRepositioned {reposition_count} new cards based on computed positions")
 
-    try:
-        message = f"Updated card fields for {update_count} cards:\n"
-        message += f"  - {FIELD_NAME_SCORE} (all cards)\n"
-        message += f"  - {FIELD_NAME_UNLOCK_POTENTIAL} (all cards)\n"
-        message += f"  - {FIELD_NAME_UNLOCK_MEDIAN_SCORE_INCREASE} (all cards)\n"
-        message += f"  - {FIELD_NAME_SCORE_WITHOUT_MISSING} (all cards)\n"
-        message += f"  - {FIELD_NAME_MISSING_KANJI_COUNT} (all cards)\n"
-        message += f"  - {FIELD_NAME_CARDS_WITH_KANJI} (all cards)\n"
-        message += f"  - {FIELD_NAME_CARDS_WITH_KANJI_KNOWN} (all cards)\n"
-        message += f"  - {FIELD_NAME_CARDS_WITH_KANJI_UNKNOWN} (all cards)\n"
-        message += f"  - {FIELD_NAME_POSITION} ({len(new_cids)} new cards only)"
-        if reposition and reposition_count > 0:
-            message += f"\n\nRepositioned {reposition_count} new cards"
-        showInfo(message)
-    except Exception as e:
-        print(f"Updated card fields for {update_count} cards")
+    if show_summary:
+        try:
+            message = f"Updated card fields for {update_count} cards:\n"
+            message += f"  - {FIELD_NAME_SCORE} (all cards)\n"
+            message += f"  - {FIELD_NAME_UNLOCK_POTENTIAL} (all cards)\n"
+            message += f"  - {FIELD_NAME_UNLOCK_MEDIAN_SCORE_INCREASE} (all cards)\n"
+            message += f"  - {FIELD_NAME_SCORE_WITHOUT_MISSING} (all cards)\n"
+            message += f"  - {FIELD_NAME_MISSING_KANJI_COUNT} (all cards)\n"
+            message += f"  - {FIELD_NAME_CARDS_WITH_KANJI} (all cards)\n"
+            message += f"  - {FIELD_NAME_CARDS_WITH_KANJI_KNOWN} (all cards)\n"
+            message += f"  - {FIELD_NAME_CARDS_WITH_KANJI_UNKNOWN} (all cards)\n"
+            message += f"  - {FIELD_NAME_POSITION} ({len(new_cids)} new cards only)"
+            if reposition and reposition_count > 0:
+                message += f"\n\nRepositioned {reposition_count} new cards"
+            showInfo(message)
+        except Exception:
+            print(f"Updated card fields for {update_count} cards")
+
+    return update_count

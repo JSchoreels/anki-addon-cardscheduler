@@ -11,6 +11,7 @@ This module handles:
 from collections import defaultdict
 
 from .dictionary import load_kanji_dictionnary_readings, extract_kanji_only
+from .reading_ambiguity import compute_reading_ambiguity_factors
 from .word_parser import get_kanji_reading_pairs, count_kanji_in_text, count_kana_in_text
 from .config import (
     NO_KANJI_MERGE_MODE,
@@ -53,6 +54,9 @@ class CardInfo:
         self.word_surface = word_surface
         self.word_readings = tuple(word_readings or ())
         self.score = 0  # Initialize score
+        self.base_score = None  # Familiarity before the reading-ambiguity handicap
+        self.reading_ambiguity_factor = 1.0
+        self.ranking_score = 0.0  # Positive ordering score, including score-zero cards
         self.unknown_kanji_readings = 0
         self.unlock_potential = 0  # Max unlock potential of any unknown kanji/reading pair in this card
         self.unlock_median_score_increase = 0  # Median score increase for cards this would unlock
@@ -319,6 +323,16 @@ def update_card_unlock_metrics(cards, card_to_pairs, kanji_reading_to_cards):
         card_info.unlock_median_score_increase = max_median_increase
 
 
+def apply_reading_ambiguity(cards, kanji_readings):
+    """Apply the contextual reading handicap while retaining raw familiarity."""
+    ambiguity_factors = compute_reading_ambiguity_factors(cards, kanji_readings)
+    for card in cards:
+        card.base_score = card.score
+        card.reading_ambiguity_factor = ambiguity_factors.get(card.card_id, 1.0)
+        if card.score > 0:
+            card.score *= card.reading_ambiguity_factor
+
+
 def compute_scores(cards):
     """Compute familiarity scores for a list of CardInfo objects."""
     kanji_readings = load_kanji_dictionnary_readings()
@@ -341,6 +355,11 @@ def compute_scores(cards):
 
     # Update each card's unlock potential and related metrics
     update_card_unlock_metrics(cards, card_to_pairs, kanji_reading_to_cards)
+
+    # Reading variants share the canonical-family evidence above. Ambiguous
+    # families then reduce the visible familiarity score according to their
+    # observed distribution and the target card's linguistic context.
+    apply_reading_ambiguity(cards, kanji_readings)
 
 
 def compute_percentile_ranks(cards, metric_getters):
@@ -457,8 +476,10 @@ def assign_positions_to_new_cards(
     - Kana count (lower is better) - shorter words preferred
     - Score without missing (lower is better) - lower score needs more help
 
-    Cards with score > 0 are sorted by score first (more familiar = learn first),
-    then by percentile product for tiebreaking.
+    Cards with positive familiarity are sorted by their ambiguity-adjusted score
+    first, then by percentile product for tiebreaking. Score-zero kanji cards keep
+    their percentile-product order as a positive shadow priority, which the same
+    ambiguity factor can adjust without crossing into the positive-score tier.
 
     Args:
         cards: List of all CardInfo objects with scores computed
@@ -543,14 +564,42 @@ def assign_positions_to_new_cards(
         for card in new_cards:
             card.percentile_rank = 100.0
 
-    # Sort by score (descending) first, then by percentile product (descending)
-    ranked_new_cards = sorted(new_cards, key=lambda c: (
-        -c.score,
-        -c.percentile_rank
-    ))
+    kanji_candidates = [
+        card for card in new_cards if count_kanji_in_text(card.furigana_text) > 0
+    ]
+    kana_only_cards = [
+        card for card in new_cards if count_kanji_in_text(card.furigana_text) == 0
+    ]
 
-    kana_only_cards = [card for card in ranked_new_cards if count_kanji_in_text(card.furigana_text) == 0]
-    kanji_cards = [card for card in ranked_new_cards if count_kanji_in_text(card.furigana_text) > 0]
+    # Preserve the current percentile-product order for score-zero kanji cards,
+    # but map it into a strictly positive band so reading ambiguity can reorder
+    # those cards too. The band remains below every genuinely positive score.
+    def base_score(card):
+        # Preserve compatibility with callers that set ``score`` directly and do
+        # not run the full computation pipeline first.
+        return card.score if card.base_score is None else card.base_score
+
+    zero_kanji_cards = sorted(
+        (card for card in kanji_candidates if base_score(card) == 0),
+        key=lambda card: -card.percentile_rank,
+    )
+    zero_count = len(zero_kanji_cards)
+    positive_scores = [card.score for card in kanji_candidates if base_score(card) > 0]
+    zero_band = min(positive_scores) / 2 if positive_scores else 1.0
+    for index, card in enumerate(zero_kanji_cards):
+        base_priority = (zero_count - index) / (zero_count + 1)
+        card.ranking_score = (
+            zero_band * base_priority * card.reading_ambiguity_factor
+        )
+
+    for card in kanji_candidates:
+        if base_score(card) > 0:
+            card.ranking_score = card.score
+
+    kanji_cards = sorted(
+        kanji_candidates,
+        key=lambda card: (-card.ranking_score, -card.percentile_rank),
+    )
     kana_only_cards = _sort_no_kanji_cards_by_frequency(kana_only_cards, no_kanji_frequency_type)
 
     if no_kanji_merge_mode == NO_KANJI_BEFORE:
