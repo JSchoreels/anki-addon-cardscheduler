@@ -28,6 +28,16 @@ class TestHTMLFormatter(unittest.TestCase):
         cls.kanji_meanings = load_kanji_meanings()
         cls.kanji_readings = load_kanji_dictionnary_readings()
 
+    def test_colors_follow_kanji_order_in_card(self):
+        """Colors must not depend on set ordering, which varies between runs."""
+        card = CardInfo(1, '学[がく]校[こう]生[せい]', 5.0)
+
+        _, _, meanings_html = format_card_html(card, self.kanji_meanings, self.kanji_readings)
+
+        self.assertTrue(meanings_html.startswith('<span style="color: lightgreen;">学</span>'))
+        self.assertIn('<span style="color: lightblue;">校</span>', meanings_html)
+        self.assertIn('<span style="color: pink;">生</span>', meanings_html)
+
     def test_no_spaces_within_single_word(self):
         """Test that kanji pairs within a single word have no spaces between them."""
         card = CardInfo(1, '物[もの]忘[わす]', 5.0)

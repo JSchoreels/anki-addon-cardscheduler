@@ -30,6 +30,7 @@ from .scheduler import (
     compute_scores,
 )
 from .related import compute_related_words
+from .html_formatter import HighlightCache
 from .sentence_morphology import MecabTokenAnalyzer
 from .sentence_scheduler import (
     SentenceCardInfo,
@@ -131,6 +132,41 @@ def _reading_options_from_furigana(text):
     return tuple(options)
 
 
+def save_notes(collection, notes):
+    """Write changed notes, in a single transaction when supported.
+
+    Each separate update_note call commits its own transaction, which
+    dominates runtime when thousands of notes change.
+    """
+    if not notes:
+        return
+    update_notes = getattr(collection, "update_notes", None)
+    if update_notes is None:
+        for note in notes:
+            collection.update_note(note)
+    else:
+        update_notes(notes)
+
+
+def save_field_changes(collection, computed_notes, field_names):
+    """Copy field_names from computed notes onto freshly loaded notes and save.
+
+    Use when the notes were loaded a while ago: reloading keeps any edits made
+    to other fields in the meantime.
+    """
+    changed_notes = []
+    for computed in computed_notes:
+        current = collection.get_note(computed.id)
+        original_fields = list(current.fields)
+        for field_name in field_names:
+            if field_name in current and field_name in computed:
+                current[field_name] = computed[field_name]
+        if current.fields != original_fields:
+            changed_notes.append(current)
+    save_notes(collection, changed_notes)
+    return len(changed_notes)
+
+
 def get_card_stability(card, simulate_zero=False):
     """
     Get the stability value for a card.
@@ -164,7 +200,8 @@ def load_cards(collection,
                kanji_field_name=INPUT_FIELD_KANJI,
                reading_field_name=INPUT_FIELD_READING,
                frequency_field_name=NO_KANJI_FREQUENCY_FIELD,
-               simulate_zero_stability=SIMULATE_ZERO_STABILITY):
+               simulate_zero_stability=SIMULATE_ZERO_STABILITY,
+               notes_by_card_id=None):
     """
     Load cards from collection and extract furigana text.
 
@@ -176,6 +213,8 @@ def load_cards(collection,
         reading_field_name: Field name for reading in two-field mode
         frequency_field_name: Field name containing frequency/rank for no-kanji ordering
         simulate_zero_stability: If True, treat all cards as having zero stability
+        notes_by_card_id: Optional dict filled with each card's loaded note, so
+            later field updates can skip reloading it
 
     Returns:
         List of CardInfo objects
@@ -187,6 +226,8 @@ def load_cards(collection,
     for cid in all_cids:
         card = collection.get_card(cid)
         note = card.note()
+        if notes_by_card_id is not None:
+            notes_by_card_id[card.id] = note
         note_type = note.note_type()
         note_field_names = {fld['name'] for fld in note_type['flds']}
 
@@ -485,9 +526,16 @@ def update_cards_score(cards_score, collection, kanji_meanings, kanji_readings,
                        unlock_potential_field=FIELD_NAME_UNLOCK_POTENTIAL,
                        new_card_ids=None, dry_run=False, available_fields=None,
                        update_related_fields=True,
-                       update_kanji_meanings_field=True):
+                       update_kanji_meanings_field=True,
+                       notes_by_card_id=None,
+                       highlight_cache=None,
+                       update_score_fields=True,
+                       pending_notes=None):
     """
     Update card fields with position, score, and unlock potential.
+
+    Changed notes are saved together once all cards have been processed,
+    unless pending_notes is given, in which case the caller saves them.
 
     Args:
         cards_score: List of CardInfo objects
@@ -502,9 +550,20 @@ def update_cards_score(cards_score, collection, kanji_meanings, kanji_readings,
         available_fields: Set of field names that are available (to skip missing fields)
         update_related_fields: If True, update related-word fields
         update_kanji_meanings_field: If True, update kanji meanings field
+        notes_by_card_id: Optional notes already loaded by load_cards
+        highlight_cache: Optional HighlightCache shared across cards
+        update_score_fields: If True, update score and position fields
+        pending_notes: If given, changed notes are appended here instead of saved
     """
     if available_fields is None:
         available_fields = set()
+    if notes_by_card_id is None:
+        notes_by_card_id = {}
+    if highlight_cache is None:
+        highlight_cache = HighlightCache()
+    save_changes = pending_notes is None
+    if save_changes:
+        pending_notes = []
 
     update_count = 0
     for card in cards_score:
@@ -517,9 +576,15 @@ def update_cards_score(cards_score, collection, kanji_meanings, kanji_readings,
                                unlock_potential_field=unlock_potential_field,
                                update_position=is_new,
                                available_fields=available_fields,
+                               update_score_fields=update_score_fields,
                                update_related_fields=update_related_fields,
-                               update_kanji_meanings_field=update_kanji_meanings_field):
+                               update_kanji_meanings_field=update_kanji_meanings_field,
+                               note=notes_by_card_id.get(card.card_id),
+                               highlight_cache=highlight_cache,
+                               pending_notes=pending_notes):
             update_count += 1
+    if save_changes:
+        save_notes(collection, pending_notes)
     return update_count
 
 
@@ -541,7 +606,10 @@ def update_card_fields(card_info, collection,
                        available_fields=None,
                        update_score_fields=True,
                        update_related_fields=True,
-                       update_kanji_meanings_field=True):
+                       update_kanji_meanings_field=True,
+                       note=None,
+                       highlight_cache=None,
+                       pending_notes=None):
     """
     Update card note with all computed fields.
 
@@ -559,13 +627,21 @@ def update_card_fields(card_info, collection,
         update_score_fields: If True, update score and position fields
         update_related_fields: If True, update related-word fields
         update_kanji_meanings_field: If True, update kanji meanings field
+        note: The card's note, if already loaded
+        highlight_cache: Optional HighlightCache shared across cards
+        pending_notes: If given, changed notes are appended here for the caller
+            to save with save_notes instead of being saved immediately
+
+    Returns:
+        True if any available field was set, even when its value was unchanged
     """
     if available_fields is None:
         available_fields = set()
 
-    card = collection.get_card(card_info.card_id)
-    note = card.note()
+    if note is None:
+        note = collection.get_card(card_info.card_id).note()
     note_type = note.note_type()
+    original_fields = list(note.fields)
 
     # Build a map of field names to indices
     field_indices = {}
@@ -577,7 +653,8 @@ def update_card_fields(card_info, collection,
         related_known_html, related_unknown_html, meanings_html = format_card_html(
             card_info,
             kanji_meanings,
-            kanji_readings
+            kanji_readings,
+            cache=highlight_cache,
         )
 
     # Track if any field was updated
@@ -648,11 +725,12 @@ def update_card_fields(card_info, collection,
         note.fields[field_indices[kanji_meanings_field]] = meanings_html
         updated = True
 
-    if updated:
-        collection.update_note(note)
-        return True
-    else:
-        return False
+    if updated and note.fields != original_fields:
+        if pending_notes is None:
+            collection.update_note(note)
+        else:
+            pending_notes.append(note)
+    return updated
 
 
 def reposition_new_cards(cards, collection):
@@ -701,7 +779,8 @@ def process_related_words(collection=None, dry_run=False, show_summary=True):
     if not collection:
         collection = mw.col
 
-    cards = load_cards(collection)
+    notes_by_card_id = {}
+    cards = load_cards(collection, notes_by_card_id=notes_by_card_id)
     from .dictionary import load_kanji_dictionnary_readings, load_kanji_meanings
     kanji_readings = load_kanji_dictionnary_readings()
     kanji_meanings = load_kanji_meanings()
@@ -714,6 +793,8 @@ def process_related_words(collection=None, dry_run=False, show_summary=True):
         FIELD_NAME_KANJI_MEANINGS,
     ])
 
+    highlight_cache = HighlightCache()
+    pending_notes = []
     update_count = 0
     for card in cards:
         if dry_run:
@@ -727,8 +808,12 @@ def process_related_words(collection=None, dry_run=False, show_summary=True):
             update_score_fields=False,
             update_related_fields=True,
             update_kanji_meanings_field=True,
+            note=notes_by_card_id.get(card.card_id),
+            highlight_cache=highlight_cache,
+            pending_notes=pending_notes,
         ):
             update_count += 1
+    save_notes(collection, pending_notes)
 
     print("=" * 60)
     print(f"Total cards processed for related words: {len(cards)}")
@@ -746,9 +831,14 @@ def process_related_words(collection=None, dry_run=False, show_summary=True):
     return update_count
 
 
-def process_sentence_scores(collection=None, dry_run=False, reposition=False):
+def process_sentence_scores(collection=None, dry_run=False, reposition=False,
+                            vocab_cards=None, kanji_readings=None):
     """
     Compute sentence strict/predicted scores and optionally reposition new cards.
+
+    Args:
+        vocab_cards: Vocabulary cards with scores already computed, to reuse
+        kanji_readings: Kanji dictionary readings, to reuse
     """
     if not collection:
         collection = mw.col
@@ -760,11 +850,13 @@ def process_sentence_scores(collection=None, dry_run=False, reposition=False):
         showInfo(message)
         return 0
 
-    vocab_cards = load_cards(collection)
-    compute_scores(vocab_cards)
-
     from .dictionary import load_kanji_dictionnary_readings
-    kanji_readings = load_kanji_dictionnary_readings()
+    if kanji_readings is None:
+        kanji_readings = load_kanji_dictionnary_readings()
+    if vocab_cards is None:
+        vocab_cards = load_cards(collection)
+        compute_scores(vocab_cards, kanji_readings)
+
     pair_intervals = build_kanji_reading_interval_map(vocab_cards, kanji_readings)
     vocabulary_index = build_vocabulary_word_index(vocab_cards, analyzer)
 
@@ -850,12 +942,160 @@ def process_all_features(collection=None, dry_run=False):
     if not collection:
         collection = mw.col
 
-    process_collection(collection=collection, dry_run=dry_run, reposition=True)
-    process_related_words(collection=collection, dry_run=dry_run)
-    process_sentence_scores(collection=collection, dry_run=dry_run, reposition=True)
+    # Later steps reuse the vocabulary cards, scores and dictionary computed
+    # here instead of loading and scoring the deck again.
+    from .dictionary import load_kanji_dictionnary_readings
+    kanji_readings = load_kanji_dictionnary_readings()
+    _, refresh = _process_vocabulary(
+        collection=collection,
+        dry_run=dry_run,
+        reposition=True,
+        include_related_words=True,
+        kanji_readings=kanji_readings,
+    )
+    process_sentence_scores(
+        collection=collection,
+        dry_run=dry_run,
+        reposition=True,
+        vocab_cards=refresh.cards,
+        kanji_readings=kanji_readings,
+    )
 
     from .reading_to_kanji_cards import process_reading_to_kanji_cards
-    return process_reading_to_kanji_cards(collection=collection, dry_run=dry_run)
+    return process_reading_to_kanji_cards(
+        collection=collection,
+        dry_run=dry_run,
+        cards=refresh.cards,
+        kanji_readings=kanji_readings,
+    )
+
+
+SCORE_FIELD_NAMES = [
+    FIELD_NAME_POSITION,
+    FIELD_NAME_SCORE,
+    FIELD_NAME_UNLOCK_POTENTIAL,
+    FIELD_NAME_UNLOCK_MEDIAN_SCORE_INCREASE,
+    FIELD_NAME_SCORE_WITHOUT_MISSING,
+    FIELD_NAME_MISSING_KANJI_COUNT,
+    FIELD_NAME_CARDS_WITH_KANJI,
+    FIELD_NAME_CARDS_WITH_KANJI_KNOWN,
+    FIELD_NAME_CARDS_WITH_KANJI_UNKNOWN,
+]
+RELATED_FIELD_NAMES = [
+    FIELD_NAME_RELATED_KNOWN,
+    FIELD_NAME_RELATED_UNKNOWN,
+    FIELD_NAME_KANJI_MEANINGS,
+]
+
+
+class VocabularyRefresh:
+    """State carried from loading the deck, through computing, to saving fields.
+
+    Only load_vocabulary_refresh and save_vocabulary_refresh use the
+    collection, so compute_vocabulary_refresh can run off Anki's collection
+    thread without blocking other collection operations.
+    """
+
+    def __init__(self, cards, notes_by_card_id, new_card_ids, available_fields,
+                 update_score_fields, include_related_words):
+        self.cards = cards
+        self.notes_by_card_id = notes_by_card_id
+        self.new_card_ids = new_card_ids
+        self.available_fields = available_fields
+        self.update_score_fields = update_score_fields
+        self.include_related_words = include_related_words
+        self.pending_notes = []
+        self.update_count = 0
+
+
+def load_vocabulary_refresh(collection, update_score_fields=True,
+                            include_related_words=False):
+    """Load the vocabulary cards, their notes, and the output fields to fill."""
+    notes_by_card_id = {}
+    cards = load_cards(collection, notes_by_card_id=notes_by_card_id)
+
+    # Get new card IDs for position assignment
+    # In simulation mode, treat ALL cards as new
+    if SIMULATE_ZERO_STABILITY:
+        new_cids = set(c.card_id for c in cards)
+    else:
+        new_cids = set(collection.find_cards(f'"deck:{DECK_NAME}" is:new'))
+
+    # Detect which output fields exist in the note types
+    field_names = []
+    if update_score_fields:
+        field_names += SCORE_FIELD_NAMES
+    if include_related_words:
+        field_names += RELATED_FIELD_NAMES
+    available_fields = detect_available_fields(collection, field_names)
+
+    return VocabularyRefresh(
+        cards,
+        notes_by_card_id,
+        new_cids,
+        available_fields,
+        update_score_fields,
+        include_related_words,
+    )
+
+
+def compute_vocabulary_refresh(refresh, dry_run=False, kanji_readings=None):
+    """Compute all fields in memory; changed notes end up in refresh.pending_notes."""
+    from .dictionary import load_kanji_dictionnary_readings, load_kanji_meanings
+    if kanji_readings is None:
+        kanji_readings = load_kanji_dictionnary_readings()
+
+    if refresh.update_score_fields:
+        # Compute scores for ALL cards
+        card_to_pairs = compute_scores(refresh.cards, kanji_readings)
+        # Assign positions only to new cards (or all cards in simulation mode)
+        assign_positions_to_new_cards(refresh.cards, refresh.new_card_ids)
+    else:
+        card_to_pairs = build_card_to_pairs(refresh.cards, kanji_readings)
+
+    kanji_meanings = {}
+    if refresh.include_related_words:
+        kanji_meanings = load_kanji_meanings()
+        compute_related_words(refresh.cards, card_to_pairs)
+
+    # Update fields for ALL cards (score/unlock for all, position only for new)
+    refresh.update_count = update_cards_score(
+        refresh.cards,
+        None,
+        kanji_meanings=kanji_meanings,
+        kanji_readings=kanji_readings,
+        new_card_ids=refresh.new_card_ids,
+        dry_run=dry_run,
+        available_fields=refresh.available_fields,
+        update_score_fields=refresh.update_score_fields,
+        update_related_fields=refresh.include_related_words,
+        update_kanji_meanings_field=refresh.include_related_words,
+        notes_by_card_id=refresh.notes_by_card_id,
+        pending_notes=refresh.pending_notes,
+    )
+    return refresh
+
+
+def save_vocabulary_refresh(collection, refresh, reposition=False,
+                            reload_notes=False):
+    """Save computed fields and optionally reposition new cards.
+
+    Args:
+        reload_notes: If True, apply only the output fields onto freshly loaded
+            notes, for when notes may have been edited since they were loaded
+
+    Returns:
+        Number of repositioned cards
+    """
+    if reload_notes:
+        save_field_changes(collection, refresh.pending_notes, refresh.available_fields)
+    else:
+        save_notes(collection, refresh.pending_notes)
+    refresh.pending_notes = []
+
+    if reposition and refresh.update_score_fields:
+        return reposition_new_cards(refresh.cards, collection)
+    return 0
 
 
 def process_collection(
@@ -863,6 +1103,7 @@ def process_collection(
     dry_run=False,
     reposition=False,
     show_summary=True,
+    include_related_words=False,
 ):
     """
     Process cards to compute scores, unlock potential, and positions.
@@ -872,11 +1113,30 @@ def process_collection(
         dry_run: If True, don't actually update cards
         reposition: If True, also reposition new cards based on computed positions
         show_summary: If True, show the completion dialog
+        include_related_words: If True, also update the related-word fields in
+            the same pass (same result as a following process_related_words)
     """
+    update_count, _ = _process_vocabulary(
+        collection=collection,
+        dry_run=dry_run,
+        reposition=reposition,
+        show_summary=show_summary,
+        include_related_words=include_related_words,
+    )
+    return update_count
+
+
+def _process_vocabulary(
+    collection=None,
+    dry_run=False,
+    reposition=False,
+    show_summary=True,
+    include_related_words=False,
+    kanji_readings=None,
+):
+    """process_collection, also returning the VocabularyRefresh for reuse."""
     if not collection:
         collection = mw.col
-    else:
-        collection = collection
 
     # Display simulation mode status
     if SIMULATE_ZERO_STABILITY:
@@ -885,20 +1145,14 @@ def process_collection(
         print("This shows the optimal learning order starting from scratch")
         print("=" * 60 + "\n")
 
-    cards = load_cards(collection)
-
-    # Compute scores for ALL cards
-    compute_scores(cards)
-
-    # Get new card IDs for position assignment
-    # In simulation mode, treat ALL cards as new
-    if SIMULATE_ZERO_STABILITY:
-        new_cids = set(c.card_id for c in cards)
-    else:
-        new_cids = set(collection.find_cards(f'"deck:{DECK_NAME}" is:new'))
-
-    # Assign positions only to new cards (or all cards in simulation mode)
-    assign_positions_to_new_cards(cards, new_cids)
+    refresh = load_vocabulary_refresh(
+        collection,
+        include_related_words=include_related_words,
+    )
+    compute_vocabulary_refresh(refresh, dry_run=dry_run, kanji_readings=kanji_readings)
+    cards = refresh.cards
+    new_cids = refresh.new_card_ids
+    update_count = refresh.update_count
 
     print("Cards sorted by learning order position:")
     print("=" * 60)
@@ -906,31 +1160,13 @@ def process_collection(
     # Show all cards in output
     print_scores(cards, new_card_ids=new_cids)
 
-    # Detect which score fields exist in the note types
-    available_fields = detect_available_fields(collection, [
-        FIELD_NAME_POSITION,
-        FIELD_NAME_SCORE,
-        FIELD_NAME_UNLOCK_POTENTIAL,
-        FIELD_NAME_UNLOCK_MEDIAN_SCORE_INCREASE,
-        FIELD_NAME_SCORE_WITHOUT_MISSING,
-        FIELD_NAME_MISSING_KANJI_COUNT,
-        FIELD_NAME_CARDS_WITH_KANJI,
-        FIELD_NAME_CARDS_WITH_KANJI_KNOWN,
-        FIELD_NAME_CARDS_WITH_KANJI_UNKNOWN
-    ])
-
-    # Update fields for ALL cards (score/unlock for all, position only for new)
-    update_count = update_cards_score(
-        cards,
-        collection,
-        kanji_meanings={},
-        kanji_readings={},
-        new_card_ids=new_cids,
-        dry_run=dry_run,
-        available_fields=available_fields,
-        update_related_fields=False,
-        update_kanji_meanings_field=False,
-    )
+    reposition_count = 0
+    if not dry_run:
+        reposition_count = save_vocabulary_refresh(
+            collection,
+            refresh,
+            reposition=reposition,
+        )
 
     print("=" * 60)
     print(f"Total cards processed: {len(cards)}")
@@ -946,11 +1182,11 @@ def process_collection(
     print(f"  - {FIELD_NAME_CARDS_WITH_KANJI_KNOWN}: Known cards sharing kanji (all cards)")
     print(f"  - {FIELD_NAME_CARDS_WITH_KANJI_UNKNOWN}: Unknown cards sharing kanji (all cards)")
     print(f"  - {FIELD_NAME_POSITION}: Learning order position (new cards only)")
-
-    # Reposition cards if requested (only new cards)
-    reposition_count = 0
-    if reposition and not dry_run:
-        reposition_count = reposition_new_cards(cards, collection)
+    if include_related_words:
+        print(f"  - {FIELD_NAME_RELATED_KNOWN}: Related known words")
+        print(f"  - {FIELD_NAME_RELATED_UNKNOWN}: Related unknown words")
+        print(f"  - {FIELD_NAME_KANJI_MEANINGS}: Kanji meanings")
+    if reposition_count:
         print(f"\nRepositioned {reposition_count} new cards based on computed positions")
 
     if show_summary:
@@ -965,10 +1201,14 @@ def process_collection(
             message += f"  - {FIELD_NAME_CARDS_WITH_KANJI_KNOWN} (all cards)\n"
             message += f"  - {FIELD_NAME_CARDS_WITH_KANJI_UNKNOWN} (all cards)\n"
             message += f"  - {FIELD_NAME_POSITION} ({len(new_cids)} new cards only)"
+            if include_related_words:
+                message += f"\n  - {FIELD_NAME_RELATED_KNOWN}"
+                message += f"\n  - {FIELD_NAME_RELATED_UNKNOWN}"
+                message += f"\n  - {FIELD_NAME_KANJI_MEANINGS}"
             if reposition and reposition_count > 0:
                 message += f"\n\nRepositioned {reposition_count} new cards"
             showInfo(message)
         except Exception:
             print(f"Updated card fields for {update_count} cards")
 
-    return update_count
+    return update_count, refresh

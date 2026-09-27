@@ -48,9 +48,19 @@ not trigger processing.
 | Delay | Time to wait after either lifecycle event before starting the refresh. |
 
 Score and reposition processing use the complete vocabulary deck so new and
-existing cards remain consistent. Anki displays a progress window while
-the refresh runs. Reading→Kanji generation and sentence scoring stay manual
-because they create or update separate card collections.
+existing cards remain consistent. The refresh runs in the background without a
+progress window: only loading the deck and saving fields briefly use the
+collection, so Anki and other add-ons are not held up while scores are
+computed. A tooltip appears once fields have been saved.
+
+The refresh is skipped when nothing it depends on changed since the last
+completed one: the vocabulary deck's cards and notes (reviews, edits, FSRS
+updates, additions and deletions), note types, the add-on settings, and the
+add-on code. The last state is remembered per profile in
+`user_files/refresh_state.json`; deleting it forces the next refresh.
+
+Reading→Kanji generation and sentence scoring stay manual because they create
+or update separate card collections.
 
 Repositioning inherently refreshes scores, even if the separate score toggle is
 off, because the position order is calculated from those scores.

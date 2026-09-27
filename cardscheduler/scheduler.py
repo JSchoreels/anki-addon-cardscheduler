@@ -333,9 +333,13 @@ def apply_reading_ambiguity(cards, kanji_readings):
             card.score *= card.reading_ambiguity_factor
 
 
-def compute_scores(cards):
-    """Compute familiarity scores for a list of CardInfo objects."""
-    kanji_readings = load_kanji_dictionnary_readings()
+def compute_scores(cards, kanji_readings=None):
+    """Compute familiarity scores for a list of CardInfo objects.
+
+    Returns the card_id -> kanji[reading] pairs mapping so callers can reuse it.
+    """
+    if kanji_readings is None:
+        kanji_readings = load_kanji_dictionnary_readings()
 
     # Build card_to_pairs once, used by all subsequent functions
     card_to_pairs = build_card_to_pairs(cards, kanji_readings)
@@ -360,6 +364,8 @@ def compute_scores(cards):
     # families then reduce the visible familiarity score according to their
     # observed distribution and the target card's linguistic context.
     apply_reading_ambiguity(cards, kanji_readings)
+
+    return card_to_pairs
 
 
 def compute_percentile_ranks(cards, metric_getters):

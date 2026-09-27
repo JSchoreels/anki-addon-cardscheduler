@@ -798,7 +798,11 @@ class TestReadingToKanjiAnkiOperations(unittest.TestCase):
 
         process_reading_to_kanji_cards(dry_run=True)
 
-        build_candidates_mock.assert_called_once_with(collection)
+        build_candidates_mock.assert_called_once_with(
+            collection,
+            cards=None,
+            kanji_readings=None,
+        )
         print_mock.assert_called_once()
         show_info_mock.assert_called_once()
 

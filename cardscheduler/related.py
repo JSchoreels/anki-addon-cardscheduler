@@ -33,27 +33,6 @@ def _parse_pair(pair):
     return match.groups() if match else None
 
 
-def _extract_kanji_set_from_pairs(pairs):
-    """Extract the set of kanji characters from a collection of pair strings.
-
-    Args:
-        pairs: Collection of strings in format 'kanji[reading]'
-
-    Returns:
-        Set of kanji characters.
-
-    Example:
-        >>> _extract_kanji_set_from_pairs({'大[だい]', '学[がく]'})
-        {'大', '学'}
-    """
-    result = set()
-    for pair in pairs:
-        parsed = _parse_pair(pair)
-        if parsed:
-            result.add(parsed[0])
-    return result
-
-
 def _build_pair_index(cards, card_to_pairs):
     """Build an index for fast lookup of cards by kanji and reading.
 
@@ -66,49 +45,12 @@ def _build_pair_index(cards, card_to_pairs):
     """
     index = defaultdict(lambda: defaultdict(list))
     for card in cards:
-        for pair in card_to_pairs[card.card_id]:
+        for pair in sorted(card_to_pairs[card.card_id]):
             parsed = _parse_pair(pair)
             if parsed:
                 kanji, reading = parsed
                 index[kanji][reading].append(card)
     return index
-
-
-def _find_shared_kanji(related_pairs, current_kanji):
-    """Find kanji characters shared between a card's pairs and a reference set.
-
-    Args:
-        related_pairs: Set of kanji[reading] pairs from another card
-        current_kanji: Set of kanji characters to match against
-
-    Returns:
-        Set of kanji characters that appear in both.
-    """
-    return _extract_kanji_set_from_pairs(related_pairs) & current_kanji
-
-
-def _get_kanji_reading_map(pairs, kanji_filter=None):
-    """Build a mapping from kanji to reading for the given pairs.
-
-    Args:
-        pairs: Collection of kanji[reading] pair strings
-        kanji_filter: Optional set of kanji to include. If None, includes all.
-
-    Returns:
-        Dict mapping kanji character to its reading.
-
-    Example:
-        >>> _get_kanji_reading_map({'大[だい]', '学[がく]'}, kanji_filter={'大'})
-        {'大': 'だい'}
-    """
-    result = {}
-    for pair in pairs:
-        parsed = _parse_pair(pair)
-        if parsed:
-            kanji, reading = parsed
-            if kanji_filter is None or kanji in kanji_filter:
-                result[kanji] = reading
-    return result
 
 
 def _can_add_related_card(kanji_reading_map, counts, limit):
@@ -157,25 +99,36 @@ def compute_related_words(cards, card_to_pairs):
     """
     kanji_index = _build_pair_index(cards, card_to_pairs)
 
+    # Parse every card's pairs once; the loops below revisit the same related
+    # cards many times. Sorting keeps results (and thus note fields) identical
+    # between runs, as set order varies with Python's per-process hashing.
+    parsed_pairs_by_card = {}
+    kanji_set_by_card = {}
+    for card in cards:
+        parsed_pairs = [
+            parsed for parsed in map(_parse_pair, sorted(card_to_pairs[card.card_id])) if parsed
+        ]
+        parsed_pairs_by_card[card.card_id] = parsed_pairs
+        kanji_set_by_card[card.card_id] = {kanji for kanji, _ in parsed_pairs}
+
     for card_info in cards:
         if not card_info.furigana_text:
             card_info.related_cards_known = []
             card_info.related_cards_unknown = []
             continue
 
-        current_pairs = card_to_pairs[card_info.card_id]
-        current_kanji = _extract_kanji_set_from_pairs(current_pairs)
+        current_kanji = kanji_set_by_card[card_info.card_id]
 
         # Collect all related cards that share any kanji
         related_cards_map = {}
-        for kanji in current_kanji:
+        for kanji in sorted(current_kanji):
             for reading_cards in kanji_index[kanji].values():
                 for related_card in reading_cards:
                     if related_card.card_id == card_info.card_id:
                         continue
                     if related_card.card_id in related_cards_map:
                         continue
-                    shared = _find_shared_kanji(card_to_pairs[related_card.card_id], current_kanji)
+                    shared = kanji_set_by_card[related_card.card_id] & current_kanji
                     if shared:
                         related_cards_map[related_card.card_id] = (related_card, shared)
 
@@ -197,10 +150,11 @@ def compute_related_words(cards, card_to_pairs):
             target_list = known_words if is_known else unknown_words
 
             # Get kanji->reading mapping for shared kanji only
-            kanji_reading_map = _get_kanji_reading_map(
-                card_to_pairs[related_card.card_id],
-                kanji_filter=shared_kanji
-            )
+            kanji_reading_map = {
+                kanji: reading
+                for kanji, reading in parsed_pairs_by_card[related_card.card_id]
+                if kanji in shared_kanji
+            }
 
             if _can_add_related_card(kanji_reading_map, counts, RELATED_CARDS_LIMIT_PER_KANJI_READING):
                 _increment_counts(kanji_reading_map, counts)

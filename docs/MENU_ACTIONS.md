@@ -15,7 +15,8 @@ When enabled, opening an Anki profile or entering a new scheduler day can start
 one background refresh. Each lifecycle trigger is independently configurable.
 Reviews and note additions do not start processing. The enabled automation
 options can refresh score fields, related words and kanji meanings, and the exact
-new-card order.
+new-card order. The refresh is skipped when the vocabulary deck, note types,
+settings and add-on code are unchanged since the last completed one.
 
 Reading→Kanji generation and sentence scoring remain manual because they update
 separate decks and note types.

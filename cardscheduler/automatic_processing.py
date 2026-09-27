@@ -2,8 +2,17 @@
 
 import logging
 
-from .anki_interface import process_collection, process_related_words
+from .anki_interface import (
+    compute_vocabulary_refresh,
+    load_vocabulary_refresh,
+    save_vocabulary_refresh,
+)
 from .config import AUTOMATIC_PROCESSING_CONFIG
+from .refresh_state import (
+    load_stored_fingerprint,
+    refresh_fingerprint,
+    store_fingerprint,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,25 +41,68 @@ def should_run_automatic_processing(
     return bool(trigger_setting and config[trigger_setting])
 
 
+class PreparedRefresh:
+    """A loaded refresh and the fingerprint of the collection it was loaded from."""
+
+    def __init__(self, collection_path, fingerprint, refresh):
+        self.collection_path = collection_path
+        self.fingerprint = fingerprint
+        self.refresh = refresh
+
+
+def prepare_automatic_refresh(collection, config=AUTOMATIC_PROCESSING_CONFIG):
+    """Load the refresh inputs, or return None when nothing changed since the last one.
+
+    Needs the collection; keep it short so other collection operations can run.
+    """
+    fingerprint = refresh_fingerprint(collection)
+    if fingerprint == load_stored_fingerprint(collection.path):
+        logger.info("CardScheduler automatic refresh skipped: vocabulary unchanged")
+        return None
+
+    refresh = load_vocabulary_refresh(
+        collection,
+        update_score_fields=config["update_scores"] or config["reposition_new_cards"],
+        include_related_words=config["update_related_words"],
+    )
+    return PreparedRefresh(collection.path, fingerprint, refresh)
+
+
+def compute_automatic_refresh(prepared):
+    """Compute the new field values. Does not use the collection."""
+    compute_vocabulary_refresh(prepared.refresh)
+    return prepared
+
+
+def finish_automatic_refresh(collection, prepared, config=AUTOMATIC_PROCESSING_CONFIG):
+    """Save the computed fields and remember the resulting collection state."""
+    unchanged_since_load = refresh_fingerprint(collection) == prepared.fingerprint
+    save_vocabulary_refresh(
+        collection,
+        prepared.refresh,
+        reposition=config["reposition_new_cards"],
+        # Notes edited while computing must keep their other fields.
+        reload_notes=not unchanged_since_load,
+    )
+    # Reviews or edits made while computing are not reflected in the saved
+    # values, so only skip the next refresh if there were none.
+    store_fingerprint(
+        collection.path,
+        refresh_fingerprint(collection) if unchanged_since_load else None,
+    )
+
+
 def run_configured_automatic_processing(
     collection,
     config=AUTOMATIC_PROCESSING_CONFIG,
-    process_collection_fn=process_collection,
-    process_related_words_fn=process_related_words,
 ):
-    """Run the enabled exact refresh actions without modal summary dialogs."""
-    if config["update_scores"] or config["reposition_new_cards"]:
-        process_collection_fn(
-            collection=collection,
-            reposition=config["reposition_new_cards"],
-            show_summary=False,
-        )
-
-    if config["update_related_words"]:
-        process_related_words_fn(
-            collection=collection,
-            show_summary=False,
-        )
+    """Run all refresh phases synchronously. Returns False if it was skipped."""
+    prepared = prepare_automatic_refresh(collection, config)
+    if prepared is None:
+        return False
+    compute_automatic_refresh(prepared)
+    finish_automatic_refresh(collection, prepared, config)
+    return True
 
 
 class AutomaticProcessingController:
@@ -102,17 +154,54 @@ class AutomaticProcessingController:
             self._rerun_requested = True
             return
 
+        # Anki runs collection operations one at a time, so only loading and
+        # saving use the collection; computing runs on a separate thread and
+        # does not hold up other add-ons or Anki's own startup work.
         self._running = True
         operation = self._query_op_factory(
             parent=self._mw,
-            op=lambda collection: run_configured_automatic_processing(
+            op=lambda collection: prepare_automatic_refresh(collection, self._config),
+            success=self._on_prepared,
+        )
+        operation.failure(self._refresh_failed)
+        operation.run_in_background()
+
+    def _on_prepared(self, prepared):
+        if prepared is None:
+            self._running = False
+            self._schedule_requested_rerun()
+            return
+
+        self._mw.taskman.run_in_background(
+            lambda: compute_automatic_refresh(prepared),
+            self._on_computed,
+            uses_collection=False,
+        )
+
+    def _on_computed(self, future):
+        try:
+            prepared = future.result()
+        except Exception as exception:
+            self._refresh_failed(exception)
+            return
+
+        collection = self._mw.col
+        if collection is None or collection.path != prepared.collection_path:
+            # The profile was closed or switched while computing.
+            self._running = False
+            self._schedule_requested_rerun()
+            return
+
+        operation = self._query_op_factory(
+            parent=self._mw,
+            op=lambda collection: finish_automatic_refresh(
                 collection,
+                prepared,
                 self._config,
             ),
             success=self._refresh_succeeded,
         )
         operation.failure(self._refresh_failed)
-        operation.with_progress("CardScheduler: refreshing vocabulary cards…")
         operation.run_in_background()
 
     def _refresh_succeeded(self, _result):

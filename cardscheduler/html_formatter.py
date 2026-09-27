@@ -15,34 +15,56 @@ HIGHLIGHT_COLORS = [
 ]
 
 
-def format_card_html(card_info, kanji_meanings, kanji_readings):
+class HighlightCache:
+    """Memoized highlighting results, valid for a single kanji_readings dict.
+
+    Related words repeat heavily across cards, so sharing one cache while
+    formatting a whole collection avoids re-highlighting the same text.
+    """
+
+    def __init__(self):
+        self.highlighted = {}
+        self.reading_parts = {}
+
+
+def format_card_html(card_info, kanji_meanings, kanji_readings, cache=None):
     """Generate all HTML for a card's display fields.
 
     Args:
         card_info: CardInfo object with related_cards_known/unknown lists
         kanji_meanings: Dict {kanji: [meanings]}
         kanji_readings: Dict {kanji: {reading: [variations]}}
+        cache: Optional HighlightCache shared across cards using the same kanji_readings
 
     Returns:
         Tuple of (related_known_html, related_unknown_html, meanings_html)
     """
-    current_kanji = set(c for c in card_info.furigana_text if '\u4e00' <= c <= '\u9fff')
+    # Order of first appearance keeps colors stable between runs; set order
+    # varies with Python's per-process string hashing.
+    current_kanji = dict.fromkeys(
+        c for c in card_info.furigana_text if '\u4e00' <= c <= '\u9fff'
+    )
 
     kanji_to_color = {
         kanji: HIGHLIGHT_COLORS[i % len(HIGHLIGHT_COLORS)]
         for i, kanji in enumerate(current_kanji)
     }
 
+    if cache is None:
+        cache = HighlightCache()
+
     related_known_html = _format_related_words(
         card_info.related_cards_known,
         kanji_to_color,
-        kanji_readings
+        kanji_readings,
+        cache,
     )
 
     related_unknown_html = _format_related_words(
         card_info.related_cards_unknown,
         kanji_to_color,
-        kanji_readings
+        kanji_readings,
+        cache,
     )
 
     meanings_html = _format_kanji_meanings(
@@ -54,19 +76,23 @@ def format_card_html(card_info, kanji_meanings, kanji_readings):
     return (related_known_html, related_unknown_html, meanings_html)
 
 
-def _format_related_words(related_cards_list, kanji_to_color, kanji_readings):
+def _format_related_words(related_cards_list, kanji_to_color, kanji_readings, cache=None):
     """Format list of (CardInfo, shared_kanji) tuples into HTML.
 
     Args:
         related_cards_list: List of (CardInfo, shared_kanji_set) tuples
         kanji_to_color: Dict mapping kanji to colors
         kanji_readings: Dict for highlighting
+        cache: Optional HighlightCache shared across calls
 
     Returns:
         HTML string with color-coded related words
     """
     if not related_cards_list:
         return ""
+
+    if cache is None:
+        cache = HighlightCache()
 
     html_parts = []
     for related_card, shared_kanji in related_cards_list:
@@ -76,14 +102,19 @@ def _format_related_words(related_cards_list, kanji_to_color, kanji_readings):
             if kanji in kanji_to_color
         }
 
-        # Normalize spacing before highlighting
-        normalized_text = _normalize_spacing(related_card.furigana_text)
+        cache_key = (related_card.furigana_text, frozenset(shared_colors.items()))
+        highlighted = cache.highlighted.get(cache_key)
+        if highlighted is None:
+            # Normalize spacing before highlighting
+            normalized_text = _normalize_spacing(related_card.furigana_text)
 
-        highlighted = _highlight_shared_kanji(
-            normalized_text,
-            shared_colors,
-            kanji_readings
-        )
+            highlighted = _highlight_shared_kanji(
+                normalized_text,
+                shared_colors,
+                kanji_readings,
+                cache,
+            )
+            cache.highlighted[cache_key] = highlighted
 
         html_parts.append(highlighted)
 
@@ -207,7 +238,7 @@ def _collapse_empty_readings_to_compound(reading_parts, full_reading):
     return reading_parts
 
 
-def _highlight_shared_kanji(furigana_text, shared_kanji_colors, kanji_readings):
+def _highlight_shared_kanji(furigana_text, shared_kanji_colors, kanji_readings, cache=None):
     """Highlight kanji in furigana text that are in shared_kanji_colors.
 
     Preserves the full furigana text including trailing kana.
@@ -243,18 +274,11 @@ def _highlight_shared_kanji(furigana_text, shared_kanji_colors, kanji_readings):
                 result.append(f'{kanji_part}[{reading_part}]')
         else:
             # Multiple kanji - split into individual pairs and highlight each
-            from .word_parser import split_reading_with_positions
-            from .dictionary import expand_iteration_marks
-
-            # Expand iteration marks (々) before splitting
-            expanded_kanji = expand_iteration_marks(kanji_part)
-
-            # Get individual kanji[reading] pairs in order
-            reading_parts = split_reading_with_positions(expanded_kanji, reading_part, kanji_readings)
+            reading_parts = _split_compound_reading(
+                kanji_part, reading_part, kanji_readings, cache
+            )
 
             if reading_parts:
-                # If any readings are empty, collapse to compound to preserve reading order
-                reading_parts = _collapse_empty_readings_to_compound(reading_parts, reading_part)
 
                 # Highlight each kanji that's in shared colors
                 pair_html = []
@@ -294,6 +318,30 @@ def _highlight_shared_kanji(furigana_text, shared_kanji_colors, kanji_readings):
     highlighted = _add_spacing_before_furigana(highlighted)
 
     return highlighted
+
+
+def _split_compound_reading(kanji_part, reading_part, kanji_readings, cache=None):
+    """Return the kanji[reading] parts of a compound, collapsed when unmatched."""
+    cache_key = (kanji_part, reading_part)
+    if cache is not None and cache_key in cache.reading_parts:
+        return cache.reading_parts[cache_key]
+
+    from .word_parser import split_reading_with_positions
+    from .dictionary import expand_iteration_marks
+
+    # Expand iteration marks (々) before splitting
+    expanded_kanji = expand_iteration_marks(kanji_part)
+
+    # Get individual kanji[reading] pairs in order
+    reading_parts = split_reading_with_positions(expanded_kanji, reading_part, kanji_readings)
+
+    if reading_parts:
+        # If any readings are empty, collapse to compound to preserve reading order
+        reading_parts = _collapse_empty_readings_to_compound(reading_parts, reading_part)
+
+    if cache is not None:
+        cache.reading_parts[cache_key] = reading_parts
+    return reading_parts
 
 
 def _format_kanji_meanings(furigana_text, kanji_to_color, kanji_meanings):

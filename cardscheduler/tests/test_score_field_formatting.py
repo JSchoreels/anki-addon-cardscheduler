@@ -1,7 +1,10 @@
 import unittest
 from unittest.mock import patch
 
+from unittest.mock import Mock
+
 from cardscheduler.anki_interface import (
+    process_all_features,
     process_collection,
     process_related_words,
     update_card_fields,
@@ -221,6 +224,46 @@ class TestScoreFieldFormatting(unittest.TestCase):
         self.assertEqual(note.fields[3], "meaning html")
 
 
+class TestNoteSaving(unittest.TestCase):
+    @patch("cardscheduler.anki_interface.format_card_html", return_value=("", "", ""))
+    def test_unchanged_note_is_not_saved(self, _mock_html):
+        field_name = "CardScheduler.Score"
+        note = FakeNote([field_name])
+        note.fields[0] = "0.000"
+        collection = FakeCollection(FakeCard(note))
+
+        updated = update_card_fields(
+            CardInfo(1, "学校[がっこう]", 0),
+            collection,
+            {},
+            {},
+            available_fields={field_name},
+        )
+
+        self.assertTrue(updated)
+        self.assertEqual(collection.updated_notes, [])
+
+    @patch("cardscheduler.anki_interface.format_card_html", return_value=("", "", ""))
+    def test_changed_note_is_queued_when_pending_notes_given(self, _mock_html):
+        field_name = "CardScheduler.Score"
+        note = FakeNote([field_name])
+        collection = FakeCollection(FakeCard(note))
+        pending_notes = []
+
+        update_card_fields(
+            CardInfo(1, "学校[がっこう]", 0),
+            collection,
+            {},
+            {},
+            available_fields={field_name},
+            pending_notes=pending_notes,
+        )
+
+        self.assertEqual(pending_notes, [note])
+        self.assertEqual(collection.updated_notes, [])
+        self.assertEqual(note.fields[0], "0.000")
+
+
 class TestRelatedWordsProcessing(unittest.TestCase):
     @patch("cardscheduler.anki_interface.showInfo")
     @patch("cardscheduler.anki_interface.update_cards_score", return_value=0)
@@ -310,6 +353,47 @@ class TestRelatedWordsProcessing(unittest.TestCase):
         self.assertFalse(kwargs["update_score_fields"])
         self.assertTrue(kwargs["update_related_fields"])
         self.assertTrue(kwargs["update_kanji_meanings_field"])
+
+
+class TestAllFeatures(unittest.TestCase):
+    @patch("cardscheduler.reading_to_kanji_cards.process_reading_to_kanji_cards")
+    @patch("cardscheduler.anki_interface.process_sentence_scores")
+    @patch("cardscheduler.anki_interface._process_vocabulary")
+    @patch("cardscheduler.dictionary.load_kanji_dictionnary_readings")
+    def test_later_steps_reuse_vocabulary_cards_and_dictionary(
+        self,
+        load_readings_mock,
+        process_vocabulary_mock,
+        sentence_mock,
+        reading_mock,
+    ):
+        collection = object()
+        refresh = Mock(cards=[CardInfo(1, "学校[がっこう]", 3.0)])
+        process_vocabulary_mock.return_value = (1, refresh)
+
+        process_all_features(collection=collection)
+
+        readings = load_readings_mock.return_value
+        process_vocabulary_mock.assert_called_once_with(
+            collection=collection,
+            dry_run=False,
+            reposition=True,
+            include_related_words=True,
+            kanji_readings=readings,
+        )
+        sentence_mock.assert_called_once_with(
+            collection=collection,
+            dry_run=False,
+            reposition=True,
+            vocab_cards=refresh.cards,
+            kanji_readings=readings,
+        )
+        reading_mock.assert_called_once_with(
+            collection=collection,
+            dry_run=False,
+            cards=refresh.cards,
+            kanji_readings=readings,
+        )
 
 
 if __name__ == "__main__":

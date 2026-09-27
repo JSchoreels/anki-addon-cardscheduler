@@ -85,7 +85,9 @@ By default, opening an Anki profile and entering a new scheduler day each
 schedule one background refresh after a short delay. The triggers can be enabled
 independently. Reviews and note additions do not run the processor. The automatic
 refresh updates scores, related words, kanji meanings, and the new-card order
-according to the checkboxes in **CardScheduler: Settings**.
+according to the checkboxes in **CardScheduler: Settings**. It is skipped when
+nothing in the vocabulary deck, the settings, or the add-on changed since the
+last refresh.
 
 Reading→Kanji generation and sentence scoring remain manual.
 

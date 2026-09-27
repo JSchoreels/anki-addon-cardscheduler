@@ -2,3 +2,4 @@
 .idea
 __pycache__
 cardscheduler/tests/test_output/
+user_files/

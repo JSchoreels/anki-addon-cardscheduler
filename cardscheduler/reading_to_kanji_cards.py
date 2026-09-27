@@ -552,9 +552,12 @@ def reposition_generated_cards(collection, sorted_card_ids):
     return len(sorted_card_ids)
 
 
-def build_candidates_from_collection(collection):
-    cards = load_cards(collection, frequency_field_name=None)
-    kanji_readings = load_kanji_dictionnary_readings()
+def build_candidates_from_collection(collection, cards=None, kanji_readings=None):
+    """Build candidates, reusing already loaded vocabulary cards when given."""
+    if cards is None:
+        cards = load_cards(collection, frequency_field_name=None)
+    if kanji_readings is None:
+        kanji_readings = load_kanji_dictionnary_readings()
     return build_reading_to_kanji_candidates(
         cards=cards,
         kanji_readings=kanji_readings,
@@ -566,11 +569,16 @@ def build_candidates_from_collection(collection):
     )
 
 
-def process_reading_to_kanji_cards(collection=None, dry_run=False):
+def process_reading_to_kanji_cards(collection=None, dry_run=False, cards=None,
+                                   kanji_readings=None):
     if collection is None:
         collection = mw.col
 
-    candidates = build_candidates_from_collection(collection)
+    candidates = build_candidates_from_collection(
+        collection,
+        cards=cards,
+        kanji_readings=kanji_readings,
+    )
     deck_name = resolve_reading_to_kanji_deck_name()
 
     if dry_run:
