@@ -42,6 +42,11 @@ def is_kanji(char):
     return '\u4e00' <= char <= '\u9fff'
 
 
+def is_kanji_or_iteration_mark(char):
+    """Check if character belongs to a kanji run, including the 々 mark (時々)."""
+    return is_kanji(char) or char == '々'
+
+
 def extract_kana_readings(text):
     """Return consecutive kana readings from text, ignoring separators."""
     text_without_context = PARENTHESIZED_KANA_CONTEXT_PATTERN.sub("", text or "")
@@ -90,9 +95,9 @@ def convert_two_fields_to_furigana(kanji_text, reading_text):
             else:
                 result.append(kanji_text[k_idx-len(kana_segment):k_idx])
 
-        elif is_kanji(kanji_text[k_idx]):
+        elif is_kanji_or_iteration_mark(kanji_text[k_idx]):
             kanji_segment = []
-            while k_idx < len(kanji_text) and is_kanji(kanji_text[k_idx]):
+            while k_idx < len(kanji_text) and is_kanji_or_iteration_mark(kanji_text[k_idx]):
                 kanji_segment.append(kanji_text[k_idx])
                 k_idx += 1
 

@@ -94,6 +94,18 @@ class TestHTMLFormatter(unittest.TestCase):
         self.assertIn('<span style="color: lightgreen;">大[だい]</span>', result)
         self.assertIn('<span style="color: lightblue;">学[がく]</span>', result)
 
+    def test_iteration_mark_shown_as_written(self):
+        """々 is displayed as written, not replaced by the kanji it repeats."""
+        result = _highlight_shared_kanji(
+            '物々交換[ぶつぶつこうかん]', {'交': 'lightgreen'}, self.kanji_readings
+        )
+        self.assertEqual(
+            result, '物々[ぶつぶつ]<span style="color: lightgreen;">交[こう]</span>換[かん]'
+        )
+
+        result = _highlight_shared_kanji('時々[ときどき]', {'時': 'pink'}, self.kanji_readings)
+        self.assertEqual(result, '<span style="color: pink;">時々[ときどき]</span>')
+
     def test_non_shared_kanji_not_highlighted(self):
         """Test that kanji not in shared_kanji_colors are not highlighted."""
         card = CardInfo(1, '大[だい]学[がく]生[せい]', 5.0)

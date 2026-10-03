@@ -49,6 +49,14 @@ class TestInputModes(unittest.TestCase):
         result = convert_two_fields_to_furigana('', '')
         self.assertEqual(result, '')
 
+    def test_convert_two_fields_keeps_iteration_mark_in_kanji_run(self):
+        """々 must not split the word and leave the following kanji without a reading."""
+        self.assertEqual(
+            convert_two_fields_to_furigana('物々交換', 'ぶつぶつこうかん'),
+            '物々交換[ぶつぶつこうかん]',
+        )
+        self.assertEqual(convert_two_fields_to_furigana('人々', 'ひとびと'), '人々[ひとびと]')
+
     def test_convert_two_fields_to_furigana_multiple_readings(self):
         """Test that two-field mode preserves multiple kana reading options."""
         result = convert_two_fields_to_furigana('止める', 'とどめる・とめる')

@@ -331,6 +331,30 @@ def _highlight_shared_kanji(furigana_text, shared_kanji_colors, kanji_readings, 
     return highlighted
 
 
+def _restore_iteration_marks(kanji_part, reading_parts):
+    """Show 々 as written (時々[ときどき]) instead of the kanji it repeats.
+
+    Splitting runs on the expanded word (時時), so each 々 gets its own
+    (kanji, reading) part; merge it back into the part before it.
+    """
+    if '々' not in kanji_part or len(reading_parts) != len(kanji_part):
+        return reading_parts
+
+    restored = []
+    for char, part in zip(kanji_part, reading_parts):
+        if char == '々' and restored:
+            kanji, reading, dictionary_form = restored[-1]
+            # Keep an unmatched reading blank so the compound still collapses
+            if reading.strip() and part[1].strip():
+                reading += part[1]
+            else:
+                reading = ' '
+            restored[-1] = (kanji + char, reading, dictionary_form)
+        else:
+            restored.append(part)
+    return restored
+
+
 def _split_compound_reading(kanji_part, reading_part, kanji_readings, cache=None):
     """Return the kanji[reading] parts of a compound, collapsed when unmatched."""
     cache_key = (kanji_part, reading_part)
@@ -347,6 +371,7 @@ def _split_compound_reading(kanji_part, reading_part, kanji_readings, cache=None
     reading_parts = split_reading_with_positions(expanded_kanji, reading_part, kanji_readings)
 
     if reading_parts:
+        reading_parts = _restore_iteration_marks(kanji_part, reading_parts)
         # If any readings are empty, collapse to compound to preserve reading order
         reading_parts = _collapse_empty_readings_to_compound(reading_parts, reading_part)
 
